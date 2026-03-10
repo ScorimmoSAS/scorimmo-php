@@ -14,9 +14,9 @@ class ScorimmoClient
     public readonly LeadsResource $leads;
 
     public function __construct(
-        private readonly string $baseUrl,
         private readonly string $username,
         private readonly string $password,
+        private readonly string $baseUrl = 'https://pro.scorimmo.com',
     ) {
         $this->leads = new LeadsResource($this);
     }

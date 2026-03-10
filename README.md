@@ -1,11 +1,12 @@
 # scorimmo-php
 
-Official PHP SDK for the [Scorimmo](https://www.scorimmo.com) real-estate CRM platform.
+SDK officiel PHP pour la plateforme CRM immobilier [Scorimmo](https://pro.scorimmo.com).
 
-## Requirements
+Facilite l'intégration des leads Scorimmo dans votre CRM en deux modes :
+- **Client API** — récupérez vos leads avec gestion automatique du token JWT
+- **Réception de webhooks** — recevez et traitez les événements Scorimmo en temps réel
 
-- PHP ≥ 8.1
-- ext-curl, ext-json
+---
 
 ## Installation
 
@@ -13,46 +14,48 @@ Official PHP SDK for the [Scorimmo](https://www.scorimmo.com) real-estate CRM pl
 composer require scorimmo/scorimmo-php
 ```
 
-## API Client
+**Prérequis :** PHP ≥ 8.1, ext-curl, ext-json
+
+---
+
+## Client API
 
 ```php
 use Scorimmo\Client\ScorimmoClient;
 
 $client = new ScorimmoClient(
-    baseUrl: 'https://app.scorimmo.com',
-    username: 'your-api-username',
-    password: 'your-api-password',
+    username: 'votre-identifiant-api',
+    password: 'votre-mot-de-passe-api',
+    // baseUrl: 'https://pro.scorimmo.com' (par défaut)
 );
 
-// Fetch leads created in the last 24h (handles pagination automatically)
+// Récupérer tous les leads des dernières 24h (pagination automatique)
 $leads = $client->leads->since(new DateTime('-24 hours'));
 
-// Get a single lead
+// Récupérer un lead par son ID
 $lead = $client->leads->get(42);
 
-// Search leads
+// Rechercher des leads
 $result = $client->leads->list([
-    'search'  => ['external_lead_id' => 'CRM-001'],
+    'search'  => ['external_lead_id' => 'MON-CRM-001'],
     'order'   => 'desc',
     'limit'   => 20,
 ]);
 
-// Create a lead
-$created = $client->leads->create([
-    'store_id' => 1,
-    'interest' => 'TRANSACTION',
-    'customer' => ['first_name' => 'Marie', 'last_name' => 'Dupont', 'phone' => '0600000001'],
-    'properties' => [['type' => 'Appartement', 'price' => 250000]],
-]);
-
-// Update a lead (e.g. store your CRM id)
-$client->leads->update($created['id'], ['external_lead_id' => 'CRM-456']);
+// Leads d'un point de vente spécifique
+$storeLeads = $client->leads->listByStore(1, ['limit' => 50]);
 ```
 
-## Webhook Handler
+---
+
+## Réception de webhooks
+
+### 1. Exposer une route dans votre application
 
 ```php
 use Scorimmo\Webhook\ScorimmoWebhook;
+use Scorimmo\Exception\WebhookAuthException;
+use Scorimmo\Exception\WebhookValidationException;
 
 $webhook = new ScorimmoWebhook(
     headerValue: $_ENV['SCORIMMO_WEBHOOK_SECRET'],
@@ -62,28 +65,75 @@ $webhook = new ScorimmoWebhook(
 $headers = getallheaders();
 $rawBody = file_get_contents('php://input');
 
-$webhook->handle($headers, $rawBody, [
-    'new_lead'     => fn(array $lead) => yourCRM()->createContact($lead),
-    'update_lead'  => fn(array $e)    => yourCRM()->updateContact($e['id'], $e),
-    'new_rdv'      => fn(array $e)    => yourCRM()->createAppointment($e),
-    'closure_lead' => fn(array $e)    => yourCRM()->archiveContact($e['lead_id']),
-]);
+try {
+    $webhook->handle($headers, $rawBody, [
+        'new_lead'     => function (array $lead): void {
+            // Nouveau lead → créer dans votre CRM
+        },
+        'update_lead'  => function (array $e): void {
+            // Lead modifié → mettre à jour
+        },
+        'new_comment'  => function (array $e): void {
+            // Nouveau commentaire
+        },
+        'new_rdv'      => function (array $e): void {
+            // Rendez-vous planifié
+        },
+        'new_reminder' => function (array $e): void {
+            // Rappel planifié
+        },
+        'closure_lead' => function (array $e): void {
+            // Lead clôturé → archiver
+        },
+    ]);
 
-http_response_code(200);
+    http_response_code(200);
+    echo json_encode(['ok' => true]);
+
+} catch (WebhookAuthException $e) {
+    http_response_code(401);
+} catch (WebhookValidationException $e) {
+    http_response_code(400);
+}
 ```
 
-### Webhook events
+### 2. Transmettre l'URL à Scorimmo
 
-| Event | Trigger | Key fields |
-|-------|---------|------------|
-| `new_lead` | Lead created | Full lead object |
-| `update_lead` | Lead updated | `id`, changed fields |
-| `new_comment` | Comment added | `lead_id`, `comment` |
-| `new_rdv` | Appointment created | `lead_id`, `start_time`, `location` |
-| `new_reminder` | Reminder created | `lead_id`, `start_time` |
-| `closure_lead` | Lead closed | `lead_id`, `status`, `close_reason` |
+Une fois votre route déployée (ex. `https://votre-crm.com/webhook/scorimmo`), communiquez les informations suivantes à votre **account manager Scorimmo** ou par e-mail à **assistance@scorimmo.com** :
 
-## Error handling
+```
+URL du webhook : https://votre-crm.com/webhook/scorimmo
+En-tête d'authentification :
+  Clé   : X-Scorimmo-Key
+  Valeur : votre-secret
+
+Événements à activer :
+  ☑ Nouveau lead        (new_lead)
+  ☑ Mise à jour lead    (update_lead)
+  ☑ Nouveau commentaire (new_comment)
+  ☑ Rendez-vous         (new_rdv)
+  ☑ Rappel              (new_reminder)
+  ☑ Clôture lead        (closure_lead)
+
+Point(s) de vente concerné(s) : [indiquez vos points de vente]
+```
+
+---
+
+## Événements webhook
+
+| Événement | Déclencheur | Champs principaux |
+|-----------|-------------|-------------------|
+| `new_lead` | Nouveau lead créé | Objet lead complet (client, biens, vendeur...) |
+| `update_lead` | Lead modifié | `id`, champs modifiés uniquement |
+| `new_comment` | Commentaire ajouté | `lead_id`, `comment`, `created_at` |
+| `new_rdv` | Rendez-vous créé | `lead_id`, `start_time`, `location`, `detail` |
+| `new_reminder` | Rappel créé | `lead_id`, `start_time`, `detail` |
+| `closure_lead` | Lead clôturé | `lead_id`, `status`, `close_reason` |
+
+---
+
+## Gestion des erreurs
 
 ```php
 use Scorimmo\Exception\ScorimmoApiException;
@@ -92,13 +142,17 @@ use Scorimmo\Exception\ScorimmoAuthException;
 try {
     $lead = $client->leads->get(999);
 } catch (ScorimmoApiException $e) {
-    echo $e->getStatusCode(); // 404
+    echo $e->getStatusCode(); // ex: 404
     echo $e->getMessage();    // "Lead not found"
 } catch (ScorimmoAuthException $e) {
-    echo "Check your API credentials";
+    echo 'Vérifiez vos identifiants API';
 }
 ```
 
-## License
+---
 
-MIT
+## Support
+
+- Account manager Scorimmo
+- **assistance@scorimmo.com**
+- [pro.scorimmo.com](https://pro.scorimmo.com)
