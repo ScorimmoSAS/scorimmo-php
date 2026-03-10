@@ -1,0 +1,29 @@
+{
+  "name": "scorimmo/scorimmo-php",
+  "description": "Official Scorimmo SDK for PHP — API client & webhook handler",
+  "type": "library",
+  "license": "MIT",
+  "keywords": ["scorimmo", "real-estate", "crm", "leads", "webhook", "sdk", "immobilier"],
+  "require": {
+    "php": ">=8.1",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Scorimmo\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Scorimmo\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "vendor/bin/phpunit tests --testdox"
+  },
+  "minimum-stability": "stable"
+}
