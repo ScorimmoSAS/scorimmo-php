@@ -1,16 +1,25 @@
 {
   "name": "scorimmo/scorimmo-php",
-  "description": "Official Scorimmo SDK for PHP — API client & webhook handler",
+  "description": "SDK officiel Scorimmo pour PHP — client API, webhook, intégrations Laravel & Symfony",
   "type": "library",
   "license": "MIT",
-  "keywords": ["scorimmo", "real-estate", "crm", "leads", "webhook", "sdk", "immobilier"],
+  "keywords": ["scorimmo", "real-estate", "crm", "leads", "webhook", "sdk", "immobilier", "laravel", "symfony"],
   "require": {
     "php": ">=8.1",
     "ext-curl": "*",
     "ext-json": "*"
   },
   "require-dev": {
-    "phpunit/phpunit": "^11.0"
+    "phpunit/phpunit": "^11.0",
+    "illuminate/support": "^10.0|^11.0|^12.0",
+    "illuminate/http": "^10.0|^11.0|^12.0",
+    "symfony/dependency-injection": "^6.4|^7.0",
+    "symfony/http-kernel": "^6.4|^7.0",
+    "symfony/config": "^6.4|^7.0"
+  },
+  "suggest": {
+    "illuminate/support": "Pour l'intégration Laravel (ServiceProvider, Facade, events)",
+    "symfony/dependency-injection": "Pour l'intégration Symfony (Bundle, autowiring)"
   },
   "autoload": {
     "psr-4": {
@@ -20,6 +29,14 @@
   "autoload-dev": {
     "psr-4": {
       "Scorimmo\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": ["Scorimmo\\Bridge\\Laravel\\ScorimmoServiceProvider"],
+      "aliases": {
+        "Scorimmo": "Scorimmo\\Bridge\\Laravel\\ScorimmoFacade"
+      }
     }
   },
   "scripts": {

@@ -2,9 +2,7 @@
 
 SDK officiel PHP pour la plateforme CRM immobilier [Scorimmo](https://pro.scorimmo.com).
 
-Facilite l'intégration des leads Scorimmo dans votre CRM en deux modes :
-- **Client API** — récupérez vos leads avec gestion automatique du token JWT
-- **Réception de webhooks** — recevez et traitez les événements Scorimmo en temps réel
+Inclut les intégrations natives **Laravel** et **Symfony**.
 
 ---
 
@@ -18,7 +16,7 @@ composer require scorimmo/scorimmo-php
 
 ---
 
-## Client API
+## Client API (PHP natif)
 
 ```php
 use Scorimmo\Client\ScorimmoClient;
@@ -29,83 +27,165 @@ $client = new ScorimmoClient(
     // baseUrl: 'https://pro.scorimmo.com' (par défaut)
 );
 
-// Récupérer tous les leads des dernières 24h (pagination automatique)
+// Leads des dernières 24h (pagination automatique)
 $leads = $client->leads->since(new DateTime('-24 hours'));
 
-// Récupérer un lead par son ID
+// Récupérer un lead
 $lead = $client->leads->get(42);
 
-// Rechercher des leads
+// Rechercher
 $result = $client->leads->list([
-    'search'  => ['external_lead_id' => 'MON-CRM-001'],
-    'order'   => 'desc',
-    'limit'   => 20,
+    'search' => ['external_lead_id' => 'MON-CRM-001'],
+    'order'  => 'desc',
+    'limit'  => 20,
 ]);
-
-// Leads d'un point de vente spécifique
-$storeLeads = $client->leads->listByStore(1, ['limit' => 50]);
 ```
 
 ---
 
-## Réception de webhooks
+## Intégration Laravel
 
-### 1. Exposer une route dans votre application
+### Configuration
+
+```bash
+php artisan vendor:publish --tag=scorimmo-config
+```
+
+Dans votre `.env` :
+
+```env
+SCORIMMO_USERNAME=votre-identifiant-api
+SCORIMMO_PASSWORD=votre-mot-de-passe-api
+SCORIMMO_WEBHOOK_SECRET=votre-secret-webhook
+```
+
+### Client via injection de dépendances
 
 ```php
-use Scorimmo\Webhook\ScorimmoWebhook;
-use Scorimmo\Exception\WebhookAuthException;
-use Scorimmo\Exception\WebhookValidationException;
+use Scorimmo\Client\ScorimmoClient;
 
-$webhook = new ScorimmoWebhook(
-    headerValue: $_ENV['SCORIMMO_WEBHOOK_SECRET'],
-    headerKey: 'X-Scorimmo-Key',
-);
+class LeadController extends Controller
+{
+    public function __construct(private ScorimmoClient $scorimmo) {}
 
-$headers = getallheaders();
-$rawBody = file_get_contents('php://input');
-
-try {
-    $webhook->handle($headers, $rawBody, [
-        'new_lead'     => function (array $lead): void {
-            // Nouveau lead → créer dans votre CRM
-        },
-        'update_lead'  => function (array $e): void {
-            // Lead modifié → mettre à jour
-        },
-        'new_comment'  => function (array $e): void {
-            // Nouveau commentaire
-        },
-        'new_rdv'      => function (array $e): void {
-            // Rendez-vous planifié
-        },
-        'new_reminder' => function (array $e): void {
-            // Rappel planifié
-        },
-        'closure_lead' => function (array $e): void {
-            // Lead clôturé → archiver
-        },
-    ]);
-
-    http_response_code(200);
-    echo json_encode(['ok' => true]);
-
-} catch (WebhookAuthException $e) {
-    http_response_code(401);
-} catch (WebhookValidationException $e) {
-    http_response_code(400);
+    public function index()
+    {
+        return $this->scorimmo->leads->since(now()->subDay());
+    }
 }
 ```
 
-### 2. Transmettre l'URL à Scorimmo
+### Réception de webhooks
 
-Une fois votre route déployée (ex. `https://votre-crm.com/webhook/scorimmo`), communiquez les informations suivantes à votre **account manager Scorimmo** ou par e-mail à **assistance@scorimmo.com** :
+Le package enregistre automatiquement la route `/webhook/scorimmo`.
+
+Excluez-la du CSRF dans `bootstrap/app.php` :
+
+```php
+$middleware->validateCsrfTokens(except: [
+    config('scorimmo.webhook_path'),
+]);
+```
+
+Écoutez les événements dans `AppServiceProvider` :
+
+```php
+Event::listen('scorimmo.new_lead',    fn($lead) => Contact::createFromScorimmo($lead));
+Event::listen('scorimmo.update_lead', fn($e)    => Contact::updateFromScorimmo($e['id'], $e));
+Event::listen('scorimmo.closure_lead',fn($e)    => Contact::archiveFromScorimmo($e['lead_id']));
+```
+
+---
+
+## Intégration Symfony
+
+### Configuration
+
+Enregistrez le bundle dans `config/bundles.php` :
+
+```php
+Scorimmo\Bridge\Symfony\ScorimmoBundle::class => ['all' => true],
+```
+
+Créez `config/packages/scorimmo.yaml` :
+
+```yaml
+scorimmo:
+    username: '%env(SCORIMMO_USERNAME)%'
+    password: '%env(SCORIMMO_PASSWORD)%'
+    webhook_secret: '%env(SCORIMMO_WEBHOOK_SECRET)%'
+```
+
+### Client via autowiring
+
+```php
+use Scorimmo\Client\ScorimmoClient;
+
+class LeadController extends AbstractController
+{
+    public function __construct(private ScorimmoClient $scorimmo) {}
+
+    #[Route('/leads')]
+    public function index(): JsonResponse
+    {
+        return $this->json(
+            $this->scorimmo->leads->since(new \DateTime('-24 hours'))
+        );
+    }
+}
+```
+
+### Réception de webhooks
+
+```php
+use Scorimmo\Webhook\ScorimmoWebhook;
+
+#[Route('/webhook/scorimmo', methods: ['POST'])]
+public function webhook(Request $request, ScorimmoWebhook $webhook): JsonResponse
+{
+    $event = $webhook->parse($request->headers->all(), $request->getContent());
+    $this->dispatcher->dispatch(new ScorimmoEvent($event), 'scorimmo.' . $event['event']);
+    return $this->json(['ok' => true]);
+}
+```
+
+Écoutez avec un listener :
+
+```php
+#[AsEventListener(event: 'scorimmo.new_lead')]
+class NewLeadListener
+{
+    public function __invoke(ScorimmoEvent $event): void
+    {
+        // Créer le contact dans votre CRM
+    }
+}
+```
+
+---
+
+## Événements disponibles
+
+| Événement | Déclencheur | Champs principaux |
+|-----------|-------------|-------------------|
+| `new_lead` | Nouveau lead créé | Objet lead complet |
+| `update_lead` | Lead modifié | `id`, champs modifiés |
+| `new_comment` | Commentaire ajouté | `lead_id`, `comment` |
+| `new_rdv` | Rendez-vous créé | `lead_id`, `start_time`, `location` |
+| `new_reminder` | Rappel créé | `lead_id`, `start_time` |
+| `closure_lead` | Lead clôturé | `lead_id`, `status`, `close_reason` |
+
+---
+
+## Transmettre l'URL webhook à Scorimmo
+
+Communiquez les informations suivantes à votre **account manager Scorimmo** ou à **assistance@scorimmo.com** :
 
 ```
-URL du webhook : https://votre-crm.com/webhook/scorimmo
+URL du webhook : https://votre-app.com/webhook/scorimmo
 En-tête d'authentification :
   Clé   : X-Scorimmo-Key
-  Valeur : votre-secret
+  Valeur : [votre SCORIMMO_WEBHOOK_SECRET]
 
 Événements à activer :
   ☑ Nouveau lead        (new_lead)
@@ -120,30 +200,19 @@ Point(s) de vente concerné(s) : [indiquez vos points de vente]
 
 ---
 
-## Événements webhook
-
-| Événement | Déclencheur | Champs principaux |
-|-----------|-------------|-------------------|
-| `new_lead` | Nouveau lead créé | Objet lead complet (client, biens, vendeur...) |
-| `update_lead` | Lead modifié | `id`, champs modifiés uniquement |
-| `new_comment` | Commentaire ajouté | `lead_id`, `comment`, `created_at` |
-| `new_rdv` | Rendez-vous créé | `lead_id`, `start_time`, `location`, `detail` |
-| `new_reminder` | Rappel créé | `lead_id`, `start_time`, `detail` |
-| `closure_lead` | Lead clôturé | `lead_id`, `status`, `close_reason` |
-
----
-
 ## Gestion des erreurs
 
 ```php
 use Scorimmo\Exception\ScorimmoApiException;
 use Scorimmo\Exception\ScorimmoAuthException;
+use Scorimmo\Exception\WebhookAuthException;
+use Scorimmo\Exception\WebhookValidationException;
 
 try {
     $lead = $client->leads->get(999);
 } catch (ScorimmoApiException $e) {
-    echo $e->getStatusCode(); // ex: 404
-    echo $e->getMessage();    // "Lead not found"
+    echo $e->getStatusCode(); // 404
+    echo $e->getMessage();
 } catch (ScorimmoAuthException $e) {
     echo 'Vérifiez vos identifiants API';
 }
