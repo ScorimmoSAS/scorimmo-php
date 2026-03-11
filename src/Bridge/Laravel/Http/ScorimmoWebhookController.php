@@ -15,9 +15,12 @@ class ScorimmoWebhookController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
+        // headers->all() returns array<string, string[]>; flatten to array<string, string>
+        $headers = array_map(fn(array $v) => $v[0] ?? '', $request->headers->all());
+
         try {
             $event = $this->webhook->parse(
-                $request->headers->all(),
+                $headers,
                 $request->getContent(),
             );
         } catch (WebhookAuthException) {

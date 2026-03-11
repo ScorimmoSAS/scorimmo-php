@@ -55,7 +55,7 @@ $client = new ScorimmoClient(
 );
 ```
 
-Le token JWT est géré automatiquement (récupéré et renouvelé à l'expiration).
+Le token JWT est géré automatiquement : récupéré à la première requête, mis en cache en mémoire, renouvelé à l'expiration, et rafraîchi automatiquement en cas de réponse 401.
 
 ### Récupérer les leads récents
 
@@ -68,6 +68,9 @@ $leads = $client->leads->since('2024-06-01 00:00:00');
 
 // Leads modifiés récemment (plutôt que créés)
 $leads = $client->leads->since(new DateTime('-1 hour'), field: 'updated_at');
+
+// Scopé à un point de vente (recommandé si le token est lié à une agence)
+$leads = $client->leads->since(new DateTime('-24 hours'), storeId: 776);
 ```
 
 ### Récupérer un lead par ID
@@ -361,9 +364,12 @@ class WebhookController extends AbstractController
     #[Route('/webhook/scorimmo', methods: ['POST'])]
     public function __invoke(Request $request): JsonResponse
     {
+        // headers->all() retourne array<string, string[]> ; on aplatit en array<string, string>
+        $headers = array_map(fn(array $v) => $v[0] ?? '', $request->headers->all());
+
         try {
             $event = $this->webhook->parse(
-                $request->headers->all(),
+                $headers,
                 $request->getContent()
             );
         } catch (WebhookAuthException) {
@@ -407,11 +413,18 @@ class WebhookController extends AbstractController
 
 Retourne un lead complet par son ID Scorimmo.
 
-### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at'): array`
+### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null): array`
 
-Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat.
+Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat dédupliqué.
 
 - `$field` : `'created_at'` (défaut) ou `'updated_at'`
+- `$maxPages` : plafond de pages récupérées (défaut : 100, soit ~5 000 leads avec `limit=50`)
+- `$storeId` : restreint à un point de vente (`/api/stores/{id}/leads`) ; `null` = global
+
+```php
+// Scopé à un point de vente (recommandé si le token est lié à une agence)
+$leads = $client->leads->since(new DateTime('-24 hours'), storeId: 776);
+```
 
 ### `leads->list(array $query = []): array`
 
@@ -430,16 +443,44 @@ Retourne une page de leads. Le tableau `$query` accepte :
 | Clé | Exemple |
 |---|---|
 | `id` | `['id' => '42']` |
+| `created_at` | `['created_at' => '>2024-01-01 00:00:00']` |
+| `updated_at` | `['updated_at' => '>2024-06-01 00:00:00']` |
+| `closed_date` | `['closed_date' => '<2024-12-31 00:00:00']` |
+| `anonymized_at` | `['anonymized_at' => '>2024-01-01 00:00:00']` |
+| `status` | `['status' => 'Affecté']` |
+| `interest` | `['interest' => 'TRANSACTION']` |
+| `origin` | `['origin' => 'TRANSFERT AGENCE']` |
+| `customer_firstname` | `['customer_firstname' => 'Jean']` |
+| `customer_lastname` | `['customer_lastname' => 'Dupont']` |
 | `email` | `['email' => 'client@exemple.com']` |
-| `status` | `['status' => 'new']` |
+| `phone` | `['phone' => '0600000000']` |
+| `other_phone_number` | `['other_phone_number' => '0600000000']` |
+| `seller_id` | `['seller_id' => '3533']` |
+| `seller_firstname` | `['seller_firstname' => 'Sofiane']` |
+| `seller_lastname` | `['seller_lastname' => 'Dupont']` |
+| `reference` | `['reference' => 'REF-001']` |
 | `external_lead_id` | `['external_lead_id' => 'MON-CRM-001']` |
 | `external_customer_id` | `['external_customer_id' => 'CLIENT-456']` |
-| `created_at` | `['created_at' => '>2024-01-01']` |
-| `updated_at` | `['updated_at' => '>=2024-06-01 00:00:00']` |
+| `seller_present_on_creation` | `['seller_present_on_creation' => '1']` |
+| `transfered` | `['transfered' => '0']` |
 
-Les opérateurs de comparaison pour les dates : `>`, `>=`, `<`, `<=` (préfixe la valeur).
+Opérateurs de comparaison sur les dates et ids : `>`, `>=`, `<`, `<=` (préfixe la valeur). Sans opérateur, la comparaison est une égalité stricte. Plusieurs filtres peuvent être combinés dans le même tableau.
 
-Retourne `['results' => [...], 'total' => N]`.
+```php
+// Combinaison de filtres
+$result = $client->leads->list([
+    'search' => [
+        'seller_id'  => '3533',
+        'status'     => 'Affecté',
+        'created_at' => '>2026-03-01 00:00:00',
+    ],
+    'orderby' => 'created_at',
+    'order'   => 'desc',
+    'limit'   => 20,
+]);
+```
+
+Retourne `['results' => [...], 'informations' => [...]]`.
 
 ### `leads->listByStore(int $storeId, array $query = []): array`
 
@@ -477,7 +518,7 @@ try {
     // Identifiants incorrects ou token expiré
     echo 'Erreur d\'authentification : ' . $e->getMessage();
 } catch (ScorimmoApiException $e) {
-    echo 'Erreur API ' . $e->getStatusCode() . ' : ' . $e->getMessage();
+    echo 'Erreur API ' . $e->statusCode . ' : ' . $e->getMessage();
     // Codes courants : 400 (requête invalide), 403 (accès refusé), 404 (lead inexistant)
 }
 

@@ -10,7 +10,7 @@ class ScorimmoServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/scorimmo.php', 'scorimmo');
+        $this->mergeConfigFrom(__DIR__ . '/../../../config/scorimmo.php', 'scorimmo');
 
         $this->app->singleton(ScorimmoClient::class, function () {
             return new ScorimmoClient(
@@ -32,10 +32,10 @@ class ScorimmoServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
-                __DIR__ . '/../config/scorimmo.php' => config_path('scorimmo.php'),
+                __DIR__ . '/../../../config/scorimmo.php' => config_path('scorimmo.php'),
             ], 'scorimmo-config');
         }
 
-        $this->loadRoutesFrom(__DIR__ . '/../routes/webhook.php');
+        $this->loadRoutesFrom(__DIR__ . '/../../../routes/webhook.php');
     }
 }
