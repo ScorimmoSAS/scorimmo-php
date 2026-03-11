@@ -1,6 +1,6 @@
 # scorimmo-php
 
-SDK officiel PHP pour la plateforme CRM immobilier [Scorimmo](https://pro.scorimmo.com).
+SDK officiel PHP pour la plateforme [Scorimmo](https://pro.scorimmo.com).
 
 Inclut les intégrations natives **Laravel** et **Symfony**.
 
@@ -36,7 +36,7 @@ composer require scorimmo/scorimmo-php
 
 ## Identifiants API
 
-Les identifiants (`username` / `password`) sont les mêmes que ceux utilisés pour se connecter à [pro.scorimmo.com](https://pro.scorimmo.com).
+Les identifiants (`username` / `password`) sont ceux fournis par Scorimmo.
 
 Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous choisissez librement — communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
 
@@ -435,8 +435,8 @@ Retourne une page de leads. Le tableau `$query` accepte :
 | `search` | `array` | Filtres par champ (voir ci-dessous) |
 | `orderby` | `string` | Champ de tri : `created_at`, `updated_at`, `status`, etc. |
 | `order` | `string` | `'asc'` ou `'desc'` |
-| `limit` | `int` | Nombre de résultats par page (défaut : 20) |
-| `page` | `int` | Numéro de page (défaut : 1) |
+| `limit` | `int` | Nombre de résultats par page (défaut API : 20) |
+| `page` | `int` | Numéro de page (défaut API : 1) |
 
 **Filtres `search` disponibles :**
 
