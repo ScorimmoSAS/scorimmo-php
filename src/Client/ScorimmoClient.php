@@ -41,7 +41,8 @@ class ScorimmoClient
 
         $this->token = $response['token'];
         // Expire 60 seconds early to avoid edge cases
-        $this->tokenExpiresAt = new DateTimeImmutable($response['token_expirate_at'])
+        $expiresAt = $response['token_expirate_at'];
+        $this->tokenExpiresAt = (new DateTimeImmutable(is_numeric($expiresAt) ? '@' . $expiresAt : $expiresAt))
             ->modify('-60 seconds');
 
         return $this->token;
