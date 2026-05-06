@@ -50,14 +50,16 @@ abstract class AbstractResource
      * Encode un tableau clé-valeur en query string URL.
      *
      * Les valeurs null sont ignorées.
-     * La notation bracket dans les clés (ex: 'created_at[gte]') est préservée et encodée
-     * correctement via http_build_query, ce qui produit le format attendu par Symfony.
+     * La notation bracket dans les clés (ex: 'created_at[gte]') est préservée non encodée
+     * afin que PHP côté serveur parse correctement les filtres de date en tableaux imbriqués.
      *
      * @param array<string, scalar|null> $query
      */
     protected function buildQueryString(array $query): string
     {
         $filtered = array_filter($query, fn($v) => $v !== null);
-        return http_build_query($filtered);
+        // http_build_query encode [ ] en %5B %5D, mais PHP côté serveur n'interprète les brackets
+        // comme tableau imbriqué (ex: created_at[gt]) que s'ils arrivent non encodés dans l'URL.
+        return str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($filtered));
     }
 }
