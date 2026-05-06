@@ -94,7 +94,7 @@ class LeadsResource extends AbstractResource
      * Récupère tous les leads créés ou modifiés après une date donnée.
      * Gère automatiquement la pagination et retourne un tableau à plat dédupliqué.
      *
-     * @param  string|\DateTimeInterface $date      Borne inférieure exclusive
+     * @param  string|\DateTimeInterface $date      Borne inférieure exclusive (format Y-m-d ou DateTimeInterface)
      * @param  string                    $field      Champ de date à filtrer : 'created_at' ou 'updated_at'
      * @param  int                       $maxPages   Nombre maximum de pages à récupérer (défaut 100 = 10 000 leads)
      * @param  int|null                  $storeId    Restreindre à un point de vente spécifique ; null = tous
@@ -109,7 +109,7 @@ class LeadsResource extends AbstractResource
         array $include = [],
     ): array {
         $iso = $date instanceof \DateTimeInterface
-            ? $date->format(\DateTimeInterface::ATOM)
+            ? $date->format('Y-m-d')
             : $date;
 
         $allLeads = [];
@@ -131,14 +131,12 @@ class LeadsResource extends AbstractResource
                 $query['include'] = implode(',', $include);
             }
 
-            $result     = $this->list($query);
-            $results    = $result['data'] ?? [];
-            $totalItems = $result['meta']['total_items'] ?? 0;
-            $allLeads   = array_merge($allLeads, $results);
+            $result   = $this->list($query);
+            $results  = $result['data'] ?? [];
+            $allLeads = array_merge($allLeads, $results);
             $page++;
 
-            // Arrêt si : toutes les pages récupérées, page vide, ou plafond de sécurité atteint
-        } while (count($allLeads) < $totalItems && count($results) > 0 && $page <= $maxPages);
+        } while (isset($result['meta']['next_page']) && count($results) > 0 && $page <= $maxPages);
 
         // Déduplique par id — un lead peut apparaître sur deux pages consécutives si la liste
         // se décale pendant la pagination (ex: nouveau lead créé entre deux appels).
