@@ -504,7 +504,7 @@ Retourne un lead complet par son ID Scorimmo.
 Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat dédupliqué.
 
 - `$field` : `'created_at'` (défaut) ou `'updated_at'`
-- `$maxPages` : plafond de pages récupérées (défaut : 100, soit ~5 000 leads avec `limit=50`)
+- `$maxPages` : plafond de pages récupérées (défaut : 100, soit ~10 000 leads avec `limit=100`)
 - `$storeId` : restreint à un point de vente via le paramètre `store_id` ; `null` = tous les points de vente
 - `$include` : relations à charger (ex: `['customer', 'seller']`)
 
