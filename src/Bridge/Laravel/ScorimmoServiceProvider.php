@@ -14,7 +14,7 @@ class ScorimmoServiceProvider extends ServiceProvider
 
         $this->app->singleton(ScorimmoClient::class, function () {
             return new ScorimmoClient(
-                username: config('scorimmo.username'),
+                email:    config('scorimmo.email'),
                 password: config('scorimmo.password'),
                 baseUrl:  config('scorimmo.base_url', 'https://pro.scorimmo.com'),
             );

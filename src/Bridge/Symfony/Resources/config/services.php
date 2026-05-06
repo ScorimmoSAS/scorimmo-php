@@ -9,7 +9,7 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(ScorimmoClient::class)
         ->args([
-            '%scorimmo.username%',
+            '%scorimmo.email%',
             '%scorimmo.password%',
             '%scorimmo.base_url%',
         ])

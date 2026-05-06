@@ -8,29 +8,29 @@ use Scorimmo\Client\ScorimmoClient;
 
 class LeadsResourceTest extends TestCase
 {
+    /**
+     * Construit une réponse paginée au format API v2 : { data: [...], meta: {...} }
+     */
     private function makePage(array $leads, int $totalItems, int $page, int $limit = 50): array
     {
         $totalPages = (int) ceil($totalItems / $limit);
 
         return [
-            'results'      => $leads,
-            'informations' => [[
-                'informations' => [
-                    'limit'                => $limit,
-                    'current_page'         => $page,
-                    'total_items'          => $totalItems,
-                    'total_pages'          => $totalPages,
-                    'current_page_results' => count($leads),
-                    'previous_page'        => $page > 1 ? "https://pro.scorimmo.com/api/leads?page=" . ($page - 1) : null,
-                    'next_page'            => $page < $totalPages ? "https://pro.scorimmo.com/api/leads?page=" . ($page + 1) : null,
-                ],
-            ]],
+            'data' => $leads,
+            'meta' => [
+                'limit'         => $limit,
+                'current_page'  => $page,
+                'total_items'   => $totalItems,
+                'total_pages'   => $totalPages,
+                'previous_page' => $page > 1 ? $page - 1 : null,
+                'next_page'     => $page < $totalPages ? $page + 1 : null,
+            ],
         ];
     }
 
     private function makeLead(int $id): array
     {
-        return ['id' => $id, 'first_name' => 'Test', 'last_name' => 'Lead', 'created_at' => '2026-03-01 00:00:00'];
+        return ['id' => $id, 'first_name' => 'Test', 'last_name' => 'Lead', 'created_at' => '2026-03-01T00:00:00+00:00'];
     }
 
     public function testSinceFetchesSinglePage(): void
@@ -86,7 +86,7 @@ class LeadsResourceTest extends TestCase
 
     public function testSinceRespectsMaxPagesCap(): void
     {
-        // total_items = 300 (6 pages of 50) but maxPages = 2
+        // total_items = 300 (6 pages de 50) mais maxPages = 2
         $page1 = array_map(fn($i) => $this->makeLead($i), range(1, 50));
         $page2 = array_map(fn($i) => $this->makeLead($i), range(51, 100));
 
@@ -106,24 +106,21 @@ class LeadsResourceTest extends TestCase
 
     public function testSinceWithRealApiResponseStructure(): void
     {
-        // Replay the actual structure observed from the API (limit 10, 739 total)
+        // Reproduit la structure réelle de l'API v2 (limit 10, 739 items au total)
         $results = array_map(fn($i) => $this->makeLead($i), range(1, 10));
         $apiResponse = [
-            'results'      => $results,
-            'informations' => [[
-                'informations' => [
-                    'limit'                => 10,
-                    'current_page'         => 1,
-                    'total_items'          => 739,
-                    'total_pages'          => 74,
-                    'current_page_results' => 10,
-                    'previous_page'        => null,
-                    'next_page'            => 'https://pro.scorimmo.com/api/stores/776/leads?limit=10&page=2',
-                ],
-            ]],
+            'data' => $results,
+            'meta' => [
+                'limit'         => 10,
+                'current_page'  => 1,
+                'total_items'   => 739,
+                'total_pages'   => 74,
+                'previous_page' => null,
+                'next_page'     => 2,
+            ],
         ];
 
-        // Only fetch 1 page (maxPages = 1) to keep the test fast
+        // On plafonne à 1 page pour garder le test rapide
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->once())
             ->method('request')
@@ -132,16 +129,17 @@ class LeadsResourceTest extends TestCase
         $resource = new LeadsResource($client);
         $leads    = $resource->since('2026-03-01 00:00:00', 'created_at', 1);
 
-        // Confirms total_items is correctly read (loop would continue beyond page 1 if not capped)
+        // Vérifie que total_items est bien lu (la boucle continuerait sans le plafond)
         $this->assertCount(10, $leads);
     }
 
-    public function testSinceWithStoreIdUsesStoreEndpoint(): void
+    public function testSinceWithStoreIdFiltersOnStoreId(): void
     {
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->once())
             ->method('request')
-            ->with('GET', $this->stringContains('/api/stores/776/leads'))
+            // En v2, le filtre store est un paramètre store_id= sur /api/v2/leads
+            ->with('GET', $this->stringContains('store_id=776'))
             ->willReturn($this->makePage([$this->makeLead(1)], 1, 1));
 
         $resource = new LeadsResource($client);
@@ -155,7 +153,7 @@ class LeadsResourceTest extends TestCase
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->once())
             ->method('request')
-            ->with('GET', $this->stringContains('/api/leads'))
+            ->with('GET', $this->stringContains('/api/v2/leads'))
             ->willReturn($this->makePage([$this->makeLead(1)], 1, 1));
 
         $resource = new LeadsResource($client);
@@ -172,7 +170,7 @@ class LeadsResourceTest extends TestCase
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->exactly(2))
             ->method('request')
-            ->with('GET', $this->stringContains('/api/stores/42/leads'))
+            ->with('GET', $this->stringContains('store_id=42'))
             ->willReturnOnConsecutiveCalls(
                 $this->makePage($page1, 51, 1),
                 $this->makePage($page2, 51, 2),
@@ -186,9 +184,9 @@ class LeadsResourceTest extends TestCase
 
     public function testSinceDeduplicatesLeadsAcrossPages(): void
     {
-        // Lead 50 appears on both page 1 and page 2 (boundary shift during pagination)
+        // Le lead 50 apparaît sur les deux pages (décalage de liste pendant la pagination)
         $page1 = array_map(fn($i) => $this->makeLead($i), range(1, 50));
-        $page2 = array_map(fn($i) => $this->makeLead($i), range(50, 55)); // id 50 duplicated
+        $page2 = array_map(fn($i) => $this->makeLead($i), range(50, 55)); // id 50 dupliqué
 
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->exactly(2))

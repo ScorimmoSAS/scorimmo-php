@@ -15,7 +15,7 @@ class ScorimmoExtension extends Extension
         $config = $this->processConfiguration($configuration, $configs);
 
         // Injecte les paramètres résolus dans le conteneur
-        $container->setParameter('scorimmo.username',       $config['username']);
+        $container->setParameter('scorimmo.email',          $config['email']);
         $container->setParameter('scorimmo.password',       $config['password']);
         $container->setParameter('scorimmo.base_url',       $config['base_url']);
         $container->setParameter('scorimmo.webhook_secret', $config['webhook_secret']);
