@@ -17,15 +17,18 @@ use Scorimmo\Exception\ScorimmoAuthException;
  *   $leads  = $client->leads->since(new DateTime('-24 hours'));
  *
  * Ressources disponibles :
- *  @property-read LeadsResource        $leads          Demandes de contact
- *  @property-read AppointmentsResource $appointments   Rendez-vous
- *  @property-read CommentsResource     $comments       Commentaires et notes
- *  @property-read RemindersResource    $reminders      Rappels / relances
- *  @property-read RequestsResource     $requests       Biens recherchés ou proposés
- *  @property-read StoresResource       $stores         Points de vente
- *  @property-read UsersResource        $users          Conseillers et managers
- *  @property-read CustomersResource    $customers      Contacts / prospects
- *  @property-read StatusResource       $status         Référentiel des statuts
+ *  @property-read LeadsResource           $leads            Demandes de contact
+ *  @property-read AppointmentsResource    $appointments     Rendez-vous
+ *  @property-read CommentsResource        $comments         Commentaires et notes
+ *  @property-read RemindersResource       $reminders        Rappels / relances
+ *  @property-read RequestsResource        $requests         Biens recherchés ou proposés
+ *  @property-read StoresResource          $stores           Points de vente
+ *  @property-read UsersResource           $users            Conseillers et managers
+ *  @property-read CustomersResource       $customers        Contacts / prospects
+ *  @property-read StatusResource          $status           Référentiel des statuts (labels + sous-statuts)
+ *  @property-read OriginsResource         $origins          Référentiel des origines
+ *  @property-read AdditionalFieldsResource $additionalFields Champs additionnels par agence/intérêt
+ *  @property-read RequestFieldsResource   $requestFields    Champs de demande par agence/intérêt
  */
 class ScorimmoClient
 {
@@ -37,30 +40,51 @@ class ScorimmoClient
 
     // ── Ressources exposées publiquement ─────────────────────────────────────────
 
-    public readonly LeadsResource        $leads;
-    public readonly AppointmentsResource $appointments;
-    public readonly CommentsResource     $comments;
-    public readonly RemindersResource    $reminders;
-    public readonly RequestsResource     $requests;
-    public readonly StoresResource       $stores;
-    public readonly UsersResource        $users;
-    public readonly CustomersResource    $customers;
-    public readonly StatusResource       $status;
+    public readonly LeadsResource            $leads;
+    public readonly AppointmentsResource     $appointments;
+    public readonly CommentsResource         $comments;
+    public readonly RemindersResource        $reminders;
+    public readonly RequestsResource         $requests;
+    public readonly StoresResource           $stores;
+    public readonly UsersResource            $users;
+    public readonly CustomersResource        $customers;
+    public readonly StatusResource           $status;
+    public readonly OriginsResource          $origins;
+    public readonly AdditionalFieldsResource $additionalFields;
+    public readonly RequestFieldsResource    $requestFields;
 
     public function __construct(
         private readonly string $email,
         private readonly string $password,
         private readonly string $baseUrl = 'https://pro.scorimmo.com',
     ) {
-        $this->leads        = new LeadsResource($this);
-        $this->appointments = new AppointmentsResource($this);
-        $this->comments     = new CommentsResource($this);
-        $this->reminders    = new RemindersResource($this);
-        $this->requests     = new RequestsResource($this);
-        $this->stores       = new StoresResource($this);
-        $this->users        = new UsersResource($this);
-        $this->customers    = new CustomersResource($this);
-        $this->status       = new StatusResource($this);
+        $this->leads            = new LeadsResource($this);
+        $this->appointments     = new AppointmentsResource($this);
+        $this->comments         = new CommentsResource($this);
+        $this->reminders        = new RemindersResource($this);
+        $this->requests         = new RequestsResource($this);
+        $this->stores           = new StoresResource($this);
+        $this->users            = new UsersResource($this);
+        $this->customers        = new CustomersResource($this);
+        $this->status           = new StatusResource($this);
+        $this->origins          = new OriginsResource($this);
+        $this->additionalFields = new AdditionalFieldsResource($this);
+        $this->requestFields    = new RequestFieldsResource($this);
+    }
+
+    // ── Raccourcis leads ─────────────────────────────────────────────────────────
+
+    /**
+     * Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés).
+     *
+     * Champs courants : external_lead_id, external_customer_id.
+     *
+     * @param  array<string, mixed> $data
+     * @return array<string, mixed> Lead mis à jour
+     */
+    public function updateLead(int $id, array $data): array
+    {
+        return $this->leads->update($id, $data);
     }
 
     // ── Gestion des tokens ────────────────────────────────────────────────────────

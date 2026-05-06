@@ -80,8 +80,7 @@ class LeadsResource extends AbstractResource
     /**
      * Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés).
      *
-     * Champs modifiables courants : external_lead_id, external_customer_id,
-     * seller_id, status, sub_status, funding_type, residence_type, etc.
+     * Champs courants : external_lead_id, external_customer_id.
      *
      * @param  array<string, mixed> $data  Champs à modifier
      * @return array<string, mixed>        Lead mis à jour

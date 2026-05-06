@@ -86,16 +86,6 @@ $lead = $client->leads->get(42);
 $lead = $client->leads->get(42, include: ['customer', 'appointments', 'comments']);
 ```
 
-### Mettre à jour un lead
-
-```php
-$lead = $client->leads->update(42, [
-    'external_lead_id'      => 'MON-CRM-001',
-    'external_customer_id'  => 'CLIENT-456',
-    'seller_id'             => 3533,
-]);
-```
-
 ### Rechercher des leads
 
 ```php
@@ -133,36 +123,58 @@ echo 'Total : ' . $result['meta']['total_items'] . PHP_EOL;
 
 ### Autres ressources disponibles
 
-L'API v2 expose 8 ressources, toutes accessibles via le client :
+L'API v2 expose 12 ressources accessibles via le client.
+
+**Données liées aux leads**
 
 ```php
-// Points de vente
-$stores = $client->stores->list();
-$store  = $client->stores->get(5);
+// Rendez-vous d'un lead
+$appointments = $client->appointments->list(['lead_id' => 42]);
 
-// Utilisateurs (conseillers / managers)
-$users = $client->users->list(['store_id' => 5]);
+// Commentaires d'un lead
+$comments = $client->comments->list(['lead_id' => 42]);
+
+// Rappels d'un lead
+$reminders = $client->reminders->list(['lead_id' => 42]);
+
+// Biens recherchés ou proposés sur un lead
+$requests = $client->requests->list(['lead_id' => 42]);
 
 // Contacts / prospects
 $customer = $client->customers->get(123);
-
-// Rendez-vous
-$appointments = $client->appointments->list(['lead_id' => 42]);
-
-// Commentaires
-$comments = $client->comments->list(['lead_id' => 42]);
-
-// Rappels
-$reminders = $client->reminders->list(['lead_id' => 42]);
-
-// Biens recherchés ou proposés
-$requests = $client->requests->list(['lead_id' => 42]);
-
-// Référentiel des statuts
-$statuses = $client->status->list();
 ```
 
-Toutes les ressources exposent les méthodes `get(int $id)` et `list(array $query = [])`.
+**Référentiels (valeurs disponibles pour les filtres et formulaires)**
+
+```php
+// Points de vente accessibles avec ce token
+$stores = $client->stores->list();
+$store  = $client->stores->get(5);
+
+// Conseillers et managers
+$users = $client->users->list(['store_id' => 5]);
+
+// Statuts et sous-statuts disponibles
+// → utiliser `label` comme valeur du filtre `status` dans leads->list()
+$statuses = $client->status->list();
+
+// Origines configurées sur le compte
+// → utiliser `label` comme valeur du filtre `origin` dans leads->list()
+$origins = $client->origins->list(['store_id' => 5]);
+
+// Avec les traceurs associés (numéros ou emails de tracking)
+$origins = $client->origins->list(['store_id' => 5, 'include' => 'tracking']);
+
+// Champs additionnels configurés par agence / intérêt
+// → utiliser les `label` comme clés dans `additional_fields` lors de la soumission d'un formulaire
+$additionalFields = $client->additionalFields->list(['store_id' => 5, 'interest' => 'Location']);
+
+// Champs de demande (critères de recherche) configurés par agence / intérêt
+// → utiliser les `label` comme clés dans le tableau `requests` lors de la soumission d'un formulaire
+$requestFields = $client->requestFields->list(['store_id' => 5, 'interest' => 'Location']);
+```
+
+Toutes les ressources exposent `list(array $query = [])`. Les ressources `stores`, `users` et `customers` exposent aussi `get(int $id)`.
 
 ---
 
@@ -487,10 +499,6 @@ Retourne un lead complet par son ID Scorimmo.
 
 - `$include` : relations à charger en même temps — `'customer'`, `'seller'`, `'appointments'`, `'reminders'`, `'requests'`, `'comments'`
 
-### `leads->update(int $id, array $data): array`
-
-Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés). Champs courants : `external_lead_id`, `external_customer_id`, `seller_id`, `status`, `sub_status`, `funding_type`, `residence_type`.
-
 ### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null, array $include = []): array`
 
 Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat dédupliqué.
@@ -595,14 +603,129 @@ Valide l'access token courant et retourne ses métadonnées : `version`, `status
 
 ## Référence — Événements webhook
 
-| Événement | Déclencheur | Champs principaux du payload |
+### `new_lead` — Nouveau lead reçu
+
+Déclenché à la création d'un lead. Le payload est l'objet lead complet.
+
+| Champ | Type | Description |
 |---|---|---|
-| `new_lead` | Nouveau lead créé | Objet lead complet (`id`, `store_id`, `customer`, `interest`, `origin`, `seller`, `status`, `created_at`, …) |
-| `update_lead` | Lead modifié | `id`, `updated_at`, champs modifiés uniquement |
-| `new_comment` | Commentaire ajouté | `lead_id`, `comment`, `created_at` |
-| `new_rdv` | Rendez-vous créé | `lead_id`, `start_time`, `location`, `type` |
-| `new_reminder` | Rappel créé | `lead_id`, `start_time`, `type` (`offer` ou `recontact`) |
-| `closure_lead` | Lead clôturé | `lead_id`, `status` (`SUCCESS`, `CLOSED`, `CLOSE_OPERATOR`), `close_reason` |
+| `id` | `int` | Identifiant Scorimmo du lead |
+| `store_id` | `int` | Point de vente concerné |
+| `interest` | `string` | `TRANSACTION`, `LOCATION`, `GESTION`… |
+| `origin` | `string` | Source du lead (portail, transfert agence…) |
+| `purpose` | `string` | Intention : `ACHAT`, `VENTE`, `LOCATION`… |
+| `contact_type` | `string` | `physical`, `phone` ou `digital` |
+| `status` | `string` | Statut initial du lead |
+| `created_at` | `string` | Date ISO 8601 de création |
+| `customer` | `array` | Contact : `first_name`, `last_name`, `email`, `phone`, `other_phone_number` |
+| `seller` | `array\|null` | Conseiller assigné : `id`, `first_name`, `last_name`, `email` |
+| `requests` | `array` | Biens recherchés ou proposés (liste) |
+| `comments` | `array` | Commentaires initiaux (liste) |
+
+```php
+'new_lead' => function (array $lead): void {
+    $name = trim($lead['customer']['first_name'] . ' ' . $lead['customer']['last_name']);
+    // $lead['id'], $lead['store_id'], $lead['interest'], $lead['origin']
+    // $lead['customer']['email'], $lead['customer']['phone']
+    // $lead['seller']['id'] ?? null
+},
+```
+
+### `update_lead` — Lead modifié
+
+Déclenché à chaque modification d'un lead. Le payload contient **uniquement les champs modifiés** (merge partiel), jamais l'objet complet.
+
+| Champ | Type | Description |
+|---|---|---|
+| `id` | `int` | Identifiant du lead modifié |
+| `updated_at` | `string` | Date ISO 8601 de la modification |
+| `external_lead_id` | `string` | Présent si modifié |
+| `status` | `string` | Présent si le statut a changé |
+| `seller` | `array` | Présent si le conseiller a changé |
+| _(autres champs)_ | | Seuls les champs réellement modifiés sont inclus |
+
+```php
+'update_lead' => function (array $event): void {
+    // $event['id'] est toujours présent
+    // $event['status'] ?? null  — nouveau statut si changé
+    // $event['seller']['id'] ?? null  — nouveau conseiller si réaffecté
+},
+```
+
+### `new_comment` — Nouveau commentaire
+
+Déclenché à l'ajout d'un commentaire ou d'une note sur un lead.
+
+| Champ | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Identifiant du lead concerné |
+| `comment` | `string` | Texte du commentaire |
+| `created_at` | `string` | Date ISO 8601 |
+| `external_lead_id` | `string\|null` | Référence CRM du lead, si renseignée |
+
+```php
+'new_comment' => function (array $event): void {
+    // $event['lead_id'], $event['comment'], $event['created_at']
+    // $event['external_lead_id'] ?? null
+},
+```
+
+### `new_rdv` — Rendez-vous planifié
+
+Déclenché à la création d'un rendez-vous sur un lead.
+
+| Champ | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Identifiant du lead concerné |
+| `start_time` | `string` | Date/heure ISO 8601 du rendez-vous |
+| `location` | `string` | Lieu du rendez-vous |
+| `detail` | `string` | Objet ou description du rendez-vous |
+| `comment` | `string\|null` | Note libre |
+| `external_lead_id` | `string\|null` | Référence CRM du lead, si renseignée |
+
+```php
+'new_rdv' => function (array $event): void {
+    // $event['lead_id'], $event['start_time'], $event['location'], $event['detail']
+},
+```
+
+### `new_reminder` — Rappel planifié
+
+Déclenché à la création d'un rappel ou d'une relance sur un lead.
+
+| Champ | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Identifiant du lead concerné |
+| `start_time` | `string` | Date/heure ISO 8601 du rappel |
+| `detail` | `string` | Objet du rappel |
+| `comment` | `string\|null` | Note libre |
+| `external_lead_id` | `string\|null` | Référence CRM du lead, si renseignée |
+
+```php
+'new_reminder' => function (array $event): void {
+    // $event['lead_id'], $event['start_time'], $event['detail']
+},
+```
+
+### `closure_lead` — Lead clôturé
+
+Déclenché à la clôture d'un lead (succès commercial ou abandon).
+
+| Champ | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Identifiant du lead clôturé |
+| `status` | `string` | `SUCCESS` (vente/location conclue), `CLOSED` (abandonné), `CLOSE_OPERATOR` (clôturé par l'opérateur) |
+| `close_reason` | `string` | Motif de clôture |
+| `external_lead_id` | `string\|null` | Référence CRM du lead, si renseignée |
+
+```php
+'closure_lead' => function (array $event): void {
+    // $event['lead_id'], $event['status'], $event['close_reason']
+    if ($event['status'] === 'SUCCESS') {
+        // Vente ou location conclue
+    }
+},
+```
 
 > Pour la structure complète de chaque payload, consultez la [documentation webhooks](https://pro.scorimmo.com/webhook/doc).
 
