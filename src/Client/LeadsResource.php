@@ -56,14 +56,10 @@ class LeadsResource extends AbstractResource
      *   requests_reference?:    string,
      *   ids?:                   string,
      *   'created_at[eq]'?:      string,
-     *   'created_at[gt]'?:      string,
      *   'created_at[gte]'?:     string,
-     *   'created_at[lt]'?:      string,
      *   'created_at[lte]'?:     string,
      *   'updated_at[eq]'?:      string,
-     *   'updated_at[gt]'?:      string,
      *   'updated_at[gte]'?:     string,
-     *   'updated_at[lt]'?:      string,
      *   'updated_at[lte]'?:     string,
      * } $query
      *
@@ -128,7 +124,7 @@ class LeadsResource extends AbstractResource
 
         do {
             $query = [
-                "{$field}[gt]" => $iso,
+                "{$field}[gte]" => $iso,
                 'sort'         => "{$field}:asc",
                 'limit'        => 100,
                 'page'         => $page,

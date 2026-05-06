@@ -59,7 +59,7 @@ abstract class AbstractResource
     {
         $filtered = array_filter($query, fn($v) => $v !== null);
         // http_build_query encode [ ] en %5B %5D, mais PHP côté serveur n'interprète les brackets
-        // comme tableau imbriqué (ex: created_at[gt]) que s'ils arrivent non encodés dans l'URL.
+        // comme tableau imbriqué (ex: created_at[gte]) que s'ils arrivent non encodés dans l'URL.
         return str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($filtered));
     }
 }
