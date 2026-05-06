@@ -217,9 +217,11 @@ class ScorimmoClient
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_CUSTOMREQUEST  => strtoupper($method),
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_HTTPHEADER      => $headers,
+            CURLOPT_CUSTOMREQUEST   => strtoupper($method),
+            CURLOPT_CONNECTTIMEOUT  => 10,
+            CURLOPT_TIMEOUT         => 25,
         ]);
 
         if ($body !== null) {
