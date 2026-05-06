@@ -18,6 +18,7 @@ Inclut les intégrations natives **Laravel** et **Symfony**.
 - [Intégration Laravel](#intégration-laravel)
 - [Intégration Symfony](#intégration-symfony)
 - [Référence — Méthodes leads](#référence--méthodes-leads)
+- [Référence — Gestion des tokens](#référence--gestion-des-tokens)
 - [Référence — Événements webhook](#référence--événements-webhook)
 - [Gestion des erreurs](#gestion-des-erreurs)
 - [Support](#support)
@@ -36,7 +37,7 @@ composer require scorimmo/scorimmo-php
 
 ## Identifiants API
 
-Les identifiants (`username` / `password`) sont ceux fournis par Scorimmo.
+Les identifiants (`email` / `password`) sont ceux fournis par Scorimmo. L'identifiant est l'adresse email du compte API.
 
 Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous choisissez librement — communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
 
@@ -50,7 +51,7 @@ Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous c
 use Scorimmo\Client\ScorimmoClient;
 
 $client = new ScorimmoClient(
-    username: 'votre-identifiant',
+    email:    'api@votre-agence.fr',
     password: 'votre-mot-de-passe',
 );
 ```
@@ -69,14 +70,30 @@ $leads = $client->leads->since('2024-06-01 00:00:00');
 // Leads modifiés récemment (plutôt que créés)
 $leads = $client->leads->since(new DateTime('-1 hour'), field: 'updated_at');
 
-// Scopé à un point de vente (recommandé si le token est lié à une agence)
+// Scopé à un point de vente
 $leads = $client->leads->since(new DateTime('-24 hours'), storeId: 776);
+
+// Avec chargement de relations (customer, seller, appointments, reminders, requests, comments)
+$leads = $client->leads->since(new DateTime('-24 hours'), include: ['customer', 'seller']);
 ```
 
 ### Récupérer un lead par ID
 
 ```php
 $lead = $client->leads->get(42);
+
+// Avec relations embarquées
+$lead = $client->leads->get(42, include: ['customer', 'appointments', 'comments']);
+```
+
+### Mettre à jour un lead
+
+```php
+$lead = $client->leads->update(42, [
+    'external_lead_id'      => 'MON-CRM-001',
+    'external_customer_id'  => 'CLIENT-456',
+    'seller_id'             => 3533,
+]);
 ```
 
 ### Rechercher des leads
@@ -84,38 +101,68 @@ $lead = $client->leads->get(42);
 ```php
 // Par ID externe (votre référence CRM)
 $result = $client->leads->list([
-    'search' => ['external_lead_id' => 'MON-CRM-001'],
+    'external_lead_id' => 'MON-CRM-001',
 ]);
 
 // Par email client
 $result = $client->leads->list([
-    'search' => ['email' => 'client@exemple.com'],
+    'customer.email' => 'client@exemple.com',
 ]);
 
-// Avec tri et pagination
+// Par point de vente, avec tri et pagination
 $result = $client->leads->list([
-    'search'  => ['status' => 'new'],
-    'orderby' => 'created_at',
-    'order'   => 'desc',
-    'limit'   => 20,
-    'page'    => 1,
+    'store_id' => 5,
+    'sort'     => 'created_at:desc',
+    'limit'    => 20,
+    'page'     => 1,
 ]);
 
-// $result['results'] contient les leads, $result['total'] le nombre total
-foreach ($result['results'] as $lead) {
+// Filtres de date avec opérateurs bracket
+$result = $client->leads->list([
+    'created_at[gte]' => '2024-01-01T00:00:00+00:00',
+    'status'          => 'Affecté',
+    'sort'            => 'created_at:asc',
+]);
+
+// $result['data'] contient les leads, $result['meta'] la pagination
+foreach ($result['data'] as $lead) {
     echo $lead['id'] . ' — ' . $lead['customer']['first_name'] . PHP_EOL;
 }
+echo 'Total : ' . $result['meta']['total_items'] . PHP_EOL;
 ```
 
-### Leads par point de vente
+### Autres ressources disponibles
+
+L'API v2 expose 8 ressources, toutes accessibles via le client :
 
 ```php
-$result = $client->leads->listByStore(storeId: 5, query: [
-    'orderby' => 'created_at',
-    'order'   => 'desc',
-    'limit'   => 50,
-]);
+// Points de vente
+$stores = $client->stores->list();
+$store  = $client->stores->get(5);
+
+// Utilisateurs (conseillers / managers)
+$users = $client->users->list(['store_id' => 5]);
+
+// Contacts / prospects
+$customer = $client->customers->get(123);
+
+// Rendez-vous
+$appointments = $client->appointments->list(['lead_id' => 42]);
+
+// Commentaires
+$comments = $client->comments->list(['lead_id' => 42]);
+
+// Rappels
+$reminders = $client->reminders->list(['lead_id' => 42]);
+
+// Biens recherchés ou proposés
+$requests = $client->requests->list(['lead_id' => 42]);
+
+// Référentiel des statuts
+$statuses = $client->status->list();
 ```
+
+Toutes les ressources exposent les méthodes `get(int $id)` et `list(array $query = [])`.
 
 ---
 
@@ -197,6 +244,31 @@ try {
 
 > **Important :** Scorimmo considère la livraison réussie uniquement si votre endpoint retourne HTTP 200. Tout autre code est ignoré.
 
+### Headers webhook v2
+
+Chaque requête webhook envoyée par Scorimmo inclut deux headers supplémentaires :
+
+| Header | Exemple | Description |
+|---|---|---|
+| `X-Scorimmo-Event` | `lead.created` | Nom sémantique de l'événement |
+| `X-Scorimmo-Version` | `2.0.0` | Version de l'API ayant émis l'événement |
+
+```php
+$eventName  = $webhook->getSemanticEvent(getallheaders()); // ex: 'lead.created'
+$apiVersion = $webhook->getApiVersion(getallheaders());    // ex: '2.0.0'
+```
+
+Correspondance entre le champ `event` du payload et `X-Scorimmo-Event` :
+
+| `event` (payload) | `X-Scorimmo-Event` |
+|---|---|
+| `new_lead` | `lead.created` |
+| `update_lead` | `lead.updated` |
+| `closure_lead` | `lead.closed` |
+| `new_comment` | `lead.comment_added` |
+| `new_rdv` | `lead.appointment_created` |
+| `new_reminder` | `lead.reminder_created` |
+
 ### Configurer le webhook chez Scorimmo
 
 Une fois votre endpoint déployé, transmettez les informations suivantes à votre **account manager Scorimmo** (voir [Support](#support)) :
@@ -231,7 +303,7 @@ php artisan vendor:publish --tag=scorimmo-config
 Dans votre `.env` :
 
 ```env
-SCORIMMO_USERNAME=votre-identifiant
+SCORIMMO_EMAIL=api@votre-agence.fr
 SCORIMMO_PASSWORD=votre-mot-de-passe
 SCORIMMO_WEBHOOK_SECRET=votre-secret-webhook
 ```
@@ -312,7 +384,7 @@ return [
 
 ```yaml
 scorimmo:
-    username:       '%env(SCORIMMO_USERNAME)%'
+    email:          '%env(SCORIMMO_EMAIL)%'
     password:       '%env(SCORIMMO_PASSWORD)%'
     webhook_secret: '%env(SCORIMMO_WEBHOOK_SECRET)%'
 ```
@@ -320,7 +392,7 @@ scorimmo:
 **Étape 3 — Ajouter dans** `.env` :
 
 ```env
-SCORIMMO_USERNAME=votre-identifiant
+SCORIMMO_EMAIL=api@votre-agence.fr
 SCORIMMO_PASSWORD=votre-mot-de-passe
 SCORIMMO_WEBHOOK_SECRET=votre-secret-webhook
 ```
@@ -409,21 +481,31 @@ class WebhookController extends AbstractController
 
 ## Référence — Méthodes leads
 
-### `leads->get(int $id): array`
+### `leads->get(int $id, array $include = []): array`
 
 Retourne un lead complet par son ID Scorimmo.
 
-### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null): array`
+- `$include` : relations à charger en même temps — `'customer'`, `'seller'`, `'appointments'`, `'reminders'`, `'requests'`, `'comments'`
+
+### `leads->update(int $id, array $data): array`
+
+Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés). Champs courants : `external_lead_id`, `external_customer_id`, `seller_id`, `status`, `sub_status`, `funding_type`, `residence_type`.
+
+### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null, array $include = []): array`
 
 Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat dédupliqué.
 
 - `$field` : `'created_at'` (défaut) ou `'updated_at'`
 - `$maxPages` : plafond de pages récupérées (défaut : 100, soit ~5 000 leads avec `limit=50`)
-- `$storeId` : restreint à un point de vente (`/api/stores/{id}/leads`) ; `null` = global
+- `$storeId` : restreint à un point de vente via le paramètre `store_id` ; `null` = tous les points de vente
+- `$include` : relations à charger (ex: `['customer', 'seller']`)
 
 ```php
-// Scopé à un point de vente (recommandé si le token est lié à une agence)
-$leads = $client->leads->since(new DateTime('-24 hours'), storeId: 776);
+$leads = $client->leads->since(
+    new DateTime('-24 hours'),
+    storeId: 776,
+    include: ['customer', 'seller'],
+);
 ```
 
 ### `leads->list(array $query = []): array`
@@ -432,59 +514,82 @@ Retourne une page de leads. Le tableau `$query` accepte :
 
 | Paramètre | Type | Description |
 |---|---|---|
-| `search` | `array` | Filtres par champ (voir ci-dessous) |
-| `orderby` | `string` | Champ de tri : `created_at`, `updated_at`, `status`, etc. |
-| `order` | `string` | `'asc'` ou `'desc'` |
-| `limit` | `int` | Nombre de résultats par page (défaut API : 20) |
-| `page` | `int` | Numéro de page (défaut API : 1) |
+| `page` | `int` | Numéro de page (défaut : 1) |
+| `limit` | `int` | Résultats par page (défaut : 10, max : 100) |
+| `sort` | `string` | Tri : `'created_at:asc'`, `'created_at:desc'`, `'updated_at:desc'`, `'id:asc'` |
+| `include` | `string` | Relations : `'customer,seller,appointments'` |
+| `store_id` | `int` | Restreindre à un point de vente |
+| `seller_id` | `int` | Restreindre à un conseiller |
+| `status` | `string` | Statut du lead |
+| `substatus` | `string` | Sous-statut |
+| `interest` | `string` | Type d'intérêt (`TRANSACTION`, `LOCATION`…) |
+| `origin` | `string` | Origine du lead |
+| `contact_type` | `string` | `'physical'`, `'phone'` ou `'digital'` |
+| `customer_first_name` | `string` | Prénom du contact |
+| `customer_last_name` | `string` | Nom du contact |
+| `customer.email` | `string` | Email du contact |
+| `customer.phone` | `string` | Téléphone du contact |
+| `external_lead_id` | `string` | Référence externe du lead |
+| `requests_reference` | `string` | Référence du bien |
+| `ids` | `string` | IDs multiples séparés par virgule |
 
-**Filtres `search` disponibles :**
+**Filtres de date avec opérateurs bracket :**
 
-| Clé | Exemple |
+| Opérateur | Exemple |
 |---|---|
-| `id` | `['id' => '42']` |
-| `created_at` | `['created_at' => '>2024-01-01 00:00:00']` |
-| `updated_at` | `['updated_at' => '>2024-06-01 00:00:00']` |
-| `closed_date` | `['closed_date' => '<2024-12-31 00:00:00']` |
-| `anonymized_at` | `['anonymized_at' => '>2024-01-01 00:00:00']` |
-| `status` | `['status' => 'Affecté']` |
-| `interest` | `['interest' => 'TRANSACTION']` |
-| `origin` | `['origin' => 'TRANSFERT AGENCE']` |
-| `customer_firstname` | `['customer_firstname' => 'Jean']` |
-| `customer_lastname` | `['customer_lastname' => 'Dupont']` |
-| `email` | `['email' => 'client@exemple.com']` |
-| `phone` | `['phone' => '0600000000']` |
-| `other_phone_number` | `['other_phone_number' => '0600000000']` |
-| `seller_id` | `['seller_id' => '3533']` |
-| `seller_firstname` | `['seller_firstname' => 'Sofiane']` |
-| `seller_lastname` | `['seller_lastname' => 'Dupont']` |
-| `reference` | `['reference' => 'REF-001']` |
-| `external_lead_id` | `['external_lead_id' => 'MON-CRM-001']` |
-| `external_customer_id` | `['external_customer_id' => 'CLIENT-456']` |
-| `seller_present_on_creation` | `['seller_present_on_creation' => '1']` |
-| `transfered` | `['transfered' => '0']` |
-
-Opérateurs de comparaison sur les dates et ids : `>`, `>=`, `<`, `<=` (préfixe la valeur). Sans opérateur, la comparaison est une égalité stricte. Plusieurs filtres peuvent être combinés dans le même tableau.
+| `[gt]` strict. supérieur | `'created_at[gt]' => '2024-01-01T00:00:00+00:00'` |
+| `[gte]` supérieur ou égal | `'updated_at[gte]' => '2024-06-01T00:00:00+00:00'` |
+| `[lt]` strict. inférieur | `'created_at[lt]' => '2024-12-31T23:59:59+00:00'` |
+| `[lte]` inférieur ou égal | `'updated_at[lte]' => '2024-12-31T23:59:59+00:00'` |
+| `[eq]` égalité | `'created_at[eq]' => '2024-06-15T00:00:00+00:00'` |
 
 ```php
 // Combinaison de filtres
 $result = $client->leads->list([
-    'search' => [
-        'seller_id'  => '3533',
-        'status'     => 'Affecté',
-        'created_at' => '>2026-03-01 00:00:00',
-    ],
-    'orderby' => 'created_at',
-    'order'   => 'desc',
-    'limit'   => 20,
+    'seller_id'        => 3533,
+    'status'           => 'Affecté',
+    'created_at[gte]'  => '2026-03-01T00:00:00+00:00',
+    'sort'             => 'created_at:desc',
+    'limit'            => 20,
 ]);
 ```
 
-Retourne `['results' => [...], 'informations' => [...]]`.
+Retourne `['data' => [...], 'meta' => ['total_items' => ..., 'page' => ..., 'limit' => ...]]`.
 
-### `leads->listByStore(int $storeId, array $query = []): array`
+---
 
-Identique à `list()` mais limité à un point de vente spécifique. Mêmes paramètres `$query`.
+## Référence — Gestion des tokens
+
+Le client gère automatiquement l'access token (obtenu au premier appel, renouvelé à l'expiration). Les méthodes ci-dessous permettent une gestion avancée de la session.
+
+### `getRefreshToken(): ?string`
+
+Retourne le refresh token courant, disponible après le premier appel authentifié. Permet de persister la session pour ne pas redemander les credentials au prochain démarrage.
+
+### `refreshAccessToken(string $refreshToken): array`
+
+Échange un refresh token contre une nouvelle paire de tokens. Chaque refresh token ne peut être utilisé qu'une seule fois (rotation automatique).
+
+```php
+$refreshToken = $client->getRefreshToken();
+// Persister $refreshToken (cache, session, base de données…)
+
+// Au démarrage suivant, sans repasser par le login email/password :
+$tokens = $client->refreshAccessToken($refreshToken);
+```
+
+### `revokeToken(?string $refreshToken = null): array`
+
+Révoque un refresh token spécifique, ou tous les refresh tokens du compte si `null`.
+
+```php
+$client->revokeToken($refreshToken); // révoque ce token
+$client->revokeToken();              // révoque tous les tokens
+```
+
+### `validateToken(): array`
+
+Valide l'access token courant et retourne ses métadonnées : `version`, `status`, `authenticated`, `scopes`, `stores`, `interests`.
 
 ---
 
