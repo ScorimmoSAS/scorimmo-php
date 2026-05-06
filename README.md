@@ -545,9 +545,7 @@ Retourne une page de leads. Le tableau `$query` accepte :
 
 | Opérateur | Exemple |
 |---|---|
-| `[gt]` strict. supérieur | `'created_at[gt]' => '2024-01-01T00:00:00+00:00'` |
 | `[gte]` supérieur ou égal | `'updated_at[gte]' => '2024-06-01T00:00:00+00:00'` |
-| `[lt]` strict. inférieur | `'created_at[lt]' => '2024-12-31T23:59:59+00:00'` |
 | `[lte]` inférieur ou égal | `'updated_at[lte]' => '2024-12-31T23:59:59+00:00'` |
 | `[eq]` égalité | `'created_at[eq]' => '2024-06-15T00:00:00+00:00'` |
 
