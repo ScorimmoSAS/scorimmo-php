@@ -96,7 +96,7 @@ class LeadsResource extends AbstractResource
      *
      * @param  string|\DateTimeInterface $date      Borne inférieure exclusive
      * @param  string                    $field      Champ de date à filtrer : 'created_at' ou 'updated_at'
-     * @param  int                       $maxPages   Nombre maximum de pages à récupérer (défaut 100 = 5 000 leads)
+     * @param  int                       $maxPages   Nombre maximum de pages à récupérer (défaut 100 = 10 000 leads)
      * @param  int|null                  $storeId    Restreindre à un point de vente spécifique ; null = tous
      * @param  string[]                  $include    Relations à charger (ex: ['customer', 'seller'])
      * @return array<int, array<string, mixed>>
@@ -119,7 +119,7 @@ class LeadsResource extends AbstractResource
             $query = [
                 "{$field}[gt]" => $iso,
                 'sort'         => "{$field}:asc",
-                'limit'        => 50,
+                'limit'        => 100,
                 'page'         => $page,
             ];
 
