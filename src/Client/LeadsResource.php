@@ -94,11 +94,14 @@ class LeadsResource extends AbstractResource
      * Récupère tous les leads créés ou modifiés après une date donnée.
      * Gère automatiquement la pagination et retourne un tableau à plat dédupliqué.
      *
-     * @param  string|\DateTimeInterface $date      Borne inférieure exclusive (format Y-m-d ou DateTimeInterface)
-     * @param  string                    $field      Champ de date à filtrer : 'created_at' ou 'updated_at'
-     * @param  int                       $maxPages   Nombre maximum de pages à récupérer (défaut 100 = 10 000 leads)
-     * @param  int|null                  $storeId    Restreindre à un point de vente spécifique ; null = tous
-     * @param  string[]                  $include    Relations à charger (ex: ['customer', 'seller'])
+     * @param  string|\DateTimeInterface $date        Borne inférieure exclusive.
+     *                                                - DateTimeInterface : l'heure est préservée (format Y-m-d H:i:s envoyé à l'API)
+     *                                                - string : doit être au format Y-m-d (ex: "2026-05-05")
+     * @param  string                    $field        Champ de date à filtrer : 'created_at' ou 'updated_at'
+     * @param  int                       $maxPages     Nombre maximum de pages à récupérer (défaut 100 = 10 000 leads)
+     * @param  int|null                  $storeId      Restreindre à un point de vente spécifique ; null = tous
+     * @param  string[]                  $include      Relations à charger (ex: ['customer', 'seller'])
+     * @param  callable|null             $onProgress   Callback appelé après chaque page : fn(int $page, int $count, int $total, array $meta)
      * @return array<int, array<string, mixed>>
      */
     public function since(
@@ -107,10 +110,18 @@ class LeadsResource extends AbstractResource
         int $maxPages = 100,
         ?int $storeId = null,
         array $include = [],
+        ?callable $onProgress = null,
     ): array {
-        $iso = $date instanceof \DateTimeInterface
-            ? $date->format('Y-m-d')
-            : $date;
+        if ($date instanceof \DateTimeInterface) {
+            $iso = $date->format('Y-m-d H:i:s');
+        } else {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || \DateTimeImmutable::createFromFormat('Y-m-d', $date) === false) {
+                throw new \InvalidArgumentException(
+                    "Le paramètre \$date doit être au format Y-m-d (ex: \"2026-05-05\"), \"{$date}\" reçu."
+                );
+            }
+            $iso = $date;
+        }
 
         $allLeads = [];
         $page     = 1;
@@ -134,6 +145,11 @@ class LeadsResource extends AbstractResource
             $result   = $this->list($query);
             $results  = $result['data'] ?? [];
             $allLeads = array_merge($allLeads, $results);
+
+            if ($onProgress !== null) {
+                ($onProgress)($page, count($results), count($allLeads), $result['meta'] ?? []);
+            }
+
             $page++;
 
         } while (isset($result['meta']['next_page']) && count($results) > 0 && $page <= $maxPages);
