@@ -12,6 +12,12 @@ namespace Scorimmo\Client;
  */
 class LeadsResource extends AbstractResource
 {
+    /** @var string[] Champs de tri acceptés */
+    private const SORT_FIELDS = ['id', 'created_at', 'updated_at', 'status'];
+
+    /** @var string[] Champs de date acceptés dans since() */
+    private const DATE_FIELDS = ['created_at', 'updated_at'];
+
     protected function basePath(): string
     {
         return '/api/v2/leads';
@@ -20,17 +26,17 @@ class LeadsResource extends AbstractResource
     /**
      * Récupère un lead unique par son identifiant.
      *
-     * @param  string[] $include  Relations à charger en même temps :
-     *                            'customer', 'seller', 'appointments', 'reminders', 'requests', 'comments'
+     * @param  string[] $query  Relations à charger :
+     *                          'customer', 'seller', 'appointments', 'reminders', 'requests', 'comments'
      * @return array<string, mixed>
      */
-    public function get(int $id, array $include = []): array
+    public function get(int $id, array $query = []): array
     {
-        $query = [];
-        if (!empty($include)) {
-            $query['include'] = implode(',', $include);
+        $params = [];
+        if (!empty($query)) {
+            $params['include'] = implode(',', $query);
         }
-        return parent::get($id, $query);
+        return parent::get($id, $params);
     }
 
     /**
@@ -53,6 +59,7 @@ class LeadsResource extends AbstractResource
      *   customer_last_name?:    string,
      *   'customer.email'?:      string,
      *   'customer.phone'?:      string,
+     *   external_lead_id?:      string,
      *   requests_reference?:    string,
      *   ids?:                   string,
      *   'created_at[eq]'?:      string,
@@ -63,26 +70,30 @@ class LeadsResource extends AbstractResource
      *   'updated_at[lte]'?:     string,
      * } $query
      *
-     * Tri disponible (paramètre 'sort') : id, created_at, updated_at, status
-     * Format : 'champ:asc' ou 'champ:desc' — ex: 'sort' => 'created_at:desc'
-     *
      * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
+     * @throws \InvalidArgumentException Si sort, limit ou page ont une valeur invalide
      */
     public function list(array $query = []): array
     {
+        if (isset($query['sort'])) {
+            $this->assertValidSort((string) $query['sort'], self::SORT_FIELDS);
+        }
+
         return parent::list($query);
     }
 
     /**
      * Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés).
      *
-     * Champs courants : external_lead_id, external_customer_id.
-     *
      * @param  array<string, mixed> $data  Champs à modifier
      * @return array<string, mixed>        Lead mis à jour
      */
     public function update(int $id, array $data): array
     {
+        if (empty($data)) {
+            throw new \InvalidArgumentException('update() requires at least one field to modify');
+        }
+
         return $this->client->request('PATCH', $this->basePath() . "/{$id}", $data);
     }
 
@@ -90,15 +101,18 @@ class LeadsResource extends AbstractResource
      * Récupère tous les leads créés ou modifiés après une date donnée.
      * Gère automatiquement la pagination et retourne un tableau à plat dédupliqué.
      *
-     * @param  string|\DateTimeInterface $date        Borne inférieure exclusive.
-     *                                                - DateTimeInterface : l'heure est préservée (format Y-m-d H:i:s envoyé à l'API)
-     *                                                - string : doit être au format Y-m-d (ex: "2026-05-05")
-     * @param  string                    $field        Champ de date à filtrer : 'created_at' ou 'updated_at'
-     * @param  int                       $maxPages     Nombre maximum de pages à récupérer (défaut 100 = 10 000 leads)
-     * @param  int|null                  $storeId      Restreindre à un point de vente spécifique ; null = tous
-     * @param  string[]                  $include      Relations à charger (ex: ['customer', 'seller'])
-     * @param  callable|null             $onProgress   Callback appelé après chaque page : fn(int $page, int $count, int $total, array $meta)
+     * @param  string|\DateTimeInterface $date
+     *           - DateTimeInterface : l'heure est préservée telle quelle
+     *           - string            : Y-m-d (ex: "2026-05-01"), Y-m-d H:i:s,
+     *                                 ou ISO 8601 (ex: "2026-05-01T12:00:00+02:00")
+     * @param  string        $field      Champ de date : 'created_at' (défaut) ou 'updated_at'
+     * @param  int           $maxPages   Nombre max de pages (défaut 100 ≈ 10 000 leads)
+     * @param  int|null      $storeId    Restreindre à un point de vente ; null = tous
+     * @param  string[]      $include    Relations à charger (ex: ['customer', 'seller'])
+     * @param  callable|null $onProgress Callback après chaque page : fn(int $page, int $count, int $total, array $meta)
+     *
      * @return array<int, array<string, mixed>>
+     * @throws \InvalidArgumentException Si date, field ou maxPages ont une valeur invalide
      */
     public function since(
         string|\DateTimeInterface $date,
@@ -108,12 +122,29 @@ class LeadsResource extends AbstractResource
         array $include = [],
         ?callable $onProgress = null,
     ): array {
+        if (!in_array($field, self::DATE_FIELDS, true)) {
+            throw new \InvalidArgumentException(
+                sprintf('"field" must be one of: %s. Got: "%s"', implode(', ', self::DATE_FIELDS), $field)
+            );
+        }
+
+        if ($maxPages < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('"maxPages" must be >= 1, got: %d', $maxPages)
+            );
+        }
+
         if ($date instanceof \DateTimeInterface) {
             $iso = $date->format('Y-m-d H:i:s');
         } else {
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || \DateTimeImmutable::createFromFormat('Y-m-d', $date) === false) {
+            // Accepte : Y-m-d | Y-m-d H:i:s | ISO 8601 avec/sans timezone (T ou espace, Z ou ±HH:MM)
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:?\d{2}|Z)?)?$/', $date)) {
                 throw new \InvalidArgumentException(
-                    "Le paramètre \$date doit être au format Y-m-d (ex: \"2026-05-05\"), \"{$date}\" reçu."
+                    sprintf(
+                        '"date" string must be Y-m-d, Y-m-d H:i:s, or ISO 8601 ' .
+                        '(e.g. "2026-05-01", "2026-05-01 12:00:00", "2026-05-01T12:00:00+02:00"), got: "%s".',
+                        $date
+                    )
                 );
             }
             $iso = $date;
@@ -125,9 +156,9 @@ class LeadsResource extends AbstractResource
         do {
             $query = [
                 "{$field}[gte]" => $iso,
-                'sort'         => "{$field}:asc",
-                'limit'        => 100,
-                'page'         => $page,
+                'sort'          => "{$field}:asc",
+                'limit'         => 100,
+                'page'          => $page,
             ];
 
             if ($storeId !== null) {

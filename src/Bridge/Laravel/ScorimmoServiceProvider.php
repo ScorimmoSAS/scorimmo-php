@@ -2,6 +2,8 @@
 
 namespace Scorimmo\Bridge\Laravel;
 
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
 use Scorimmo\Client\ScorimmoClient;
 use Scorimmo\Webhook\ScorimmoWebhook;
@@ -12,18 +14,19 @@ class ScorimmoServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__ . '/../../../config/scorimmo.php', 'scorimmo');
 
-        $this->app->singleton(ScorimmoClient::class, function () {
+        $this->app->singleton(ScorimmoClient::class, function (Application $app) {
             return new ScorimmoClient(
-                email:    config('scorimmo.email'),
-                password: config('scorimmo.password'),
-                baseUrl:  config('scorimmo.base_url', 'https://pro.scorimmo.com'),
+                email:    Config::get('scorimmo.email'),
+                password: Config::get('scorimmo.password'),
+                baseUrl:  Config::get('scorimmo.base_url', 'https://pro.scorimmo.com'),
+                logger:   $app->make(\Psr\Log\LoggerInterface::class),
             );
         });
 
         $this->app->singleton(ScorimmoWebhook::class, function () {
             return new ScorimmoWebhook(
-                headerValue: config('scorimmo.webhook_secret'),
-                headerKey:   config('scorimmo.webhook_header', 'X-Scorimmo-Key'),
+                headerValue: Config::get('scorimmo.webhook_secret'),
+                headerKey:   Config::get('scorimmo.webhook_header', 'X-Scorimmo-Key'),
             );
         });
     }
@@ -32,7 +35,7 @@ class ScorimmoServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
-                __DIR__ . '/../../../config/scorimmo.php' => config_path('scorimmo.php'),
+                __DIR__ . '/../../../config/scorimmo.php' => $this->app->configPath('scorimmo.php'),
             ], 'scorimmo-config');
         }
 

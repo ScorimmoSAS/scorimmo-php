@@ -36,10 +36,10 @@ echo "\nStore #42: " . count($storeLeads) . " leads\n";
 
 // ── Récupérer un lead par son ID (avec toutes ses relations) ─────────────────
 try {
-    $lead = $client->leads->get(42, include: ['customer', 'seller', 'appointments', 'comments']);
+    $lead = $client->leads->get(42, query: ['customer', 'seller', 'appointments', 'comments']);
     echo "\nLead #42: " . json_encode($lead, JSON_PRETTY_PRINT) . "\n";
 } catch (ScorimmoApiException $e) {
-    if ($e->getStatusCode() === 404) {
+    if ($e->statusCode === 404) {
         echo "Lead #42 not found\n";
     } else {
         throw $e;

@@ -5,7 +5,7 @@ SDK officiel PHP pour la plateforme [Scorimmo](https://pro.scorimmo.com).
 Inclut les intégrations natives **Laravel** et **Symfony**.
 
 > **Documentation de référence :**
-> [API REST](https://pro.scorimmo.com/api/doc) · [Webhooks](https://pro.scorimmo.com/webhook/doc)
+> [API REST](https://pro.scorimmo.com/api/v2/doc) · [Webhooks](https://pro.scorimmo.com/webhook/doc)
 
 ---
 
@@ -13,13 +13,14 @@ Inclut les intégrations natives **Laravel** et **Symfony**.
 
 - [Installation](#installation)
 - [Identifiants API](#identifiants-api)
-- [Client API — PHP natif](#client-api--php-natif)
-- [Webhooks — PHP natif](#webhooks--php-natif)
+- [Client API - PHP natif](#client-api--php-natif)
+- [Webhooks - PHP natif](#webhooks--php-natif)
 - [Intégration Laravel](#intégration-laravel)
 - [Intégration Symfony](#intégration-symfony)
-- [Référence — Méthodes leads](#référence--méthodes-leads)
-- [Référence — Gestion des tokens](#référence--gestion-des-tokens)
-- [Référence — Événements webhook](#référence--événements-webhook)
+- [Référence - Méthodes leads](#référence--méthodes-leads)
+- [Référence - Ressources secondaires](#référence--ressources-secondaires)
+- [Référence - Gestion des tokens](#référence--gestion-des-tokens)
+- [Référence - Événements webhook](#référence--événements-webhook)
 - [Gestion des erreurs](#gestion-des-erreurs)
 - [Support](#support)
 
@@ -31,7 +32,7 @@ Inclut les intégrations natives **Laravel** et **Symfony**.
 composer require scorimmo/scorimmo-php
 ```
 
-**Prérequis :** PHP ≥ 8.1, extensions `curl` et `json` (activées par défaut sur la plupart des hébergements).
+**Prérequis :** PHP ≥ 8.1, extension `json` (activée par défaut). La dépendance HTTP ([Guzzle](https://github.com/guzzle/guzzle)) est installée automatiquement par Composer.
 
 ---
 
@@ -39,13 +40,17 @@ composer require scorimmo/scorimmo-php
 
 Les identifiants (`email` / `password`) sont ceux fournis par Scorimmo. L'identifiant est l'adresse email du compte API.
 
-Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous choisissez librement — communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
+Après le premier appel authentifié, un **refresh token** est disponible via `getRefreshToken()`. Il permet de réinitialiser le client sans repasser par les identifiants (voir [Gestion des tokens](#référence--gestion-des-tokens)).
+
+Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous choisissez librement - communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
 
 ---
 
 ## Client API — PHP natif
 
 ### Initialisation
+
+**Avec identifiants email/password :**
 
 ```php
 use Scorimmo\Client\ScorimmoClient;
@@ -56,7 +61,46 @@ $client = new ScorimmoClient(
 );
 ```
 
-Le token JWT est géré automatiquement : récupéré à la première requête, mis en cache en mémoire, renouvelé à l'expiration, et rafraîchi automatiquement en cas de réponse 401.
+**Avec un refresh token** (sans exposer les identifiants) :
+
+```php
+// Récupérer le refresh token après le premier appel authentifié et le persister
+$client->getToken(); // déclenche l'auth initiale
+$refreshToken = $client->getRefreshToken();
+// → stocker $refreshToken (cache, session, coffre-fort de secrets…)
+
+// Au démarrage suivant, passer directement le refresh token :
+$client = new ScorimmoClient(refreshToken: $refreshToken);
+```
+
+Le token JWT est géré automatiquement : récupéré à la première requête, mis en cache en mémoire, et renouvelé via le refresh token à l'expiration. Si le refresh token est rejeté et que des identifiants sont disponibles, le client bascule automatiquement sur l'authentification email/password.
+
+### Activer les logs (optionnel)
+
+Le client accepte un logger [PSR-3](https://www.php-fig.org/psr/psr-3/) (Monolog, Laravel Log, etc.). Sans logger, tout est silencieux.
+
+```php
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+
+$logger = new Logger('scorimmo');
+$logger->pushHandler(new StreamHandler('php://stdout'));
+
+$client = new ScorimmoClient(
+    email:    'api@votre-agence.fr',
+    password: 'votre-mot-de-passe',
+    logger:   $logger,
+);
+```
+
+**Niveaux de log émis :**
+
+| Niveau | Événement |
+|---|---|
+| `DEBUG` | Chaque requête HTTP envoyée (`→ GET /api/v2/leads`) et réponse reçue (`← 200 … 42ms`) |
+| `INFO` | Obtention ou renouvellement d'un token JWT |
+| `WARNING` | Refresh token rejeté, bascule sur email/password |
+| `ERROR` | Erreur d'authentification, erreur API (4xx/5xx), échec réseau |
 
 ### Récupérer les leads récents
 
@@ -64,8 +108,10 @@ Le token JWT est géré automatiquement : récupéré à la première requête, 
 // Tous les leads des dernières 24 heures (pagination automatique)
 $leads = $client->leads->since(new DateTime('-24 hours'));
 
-// Depuis une date précise
-$leads = $client->leads->since('2024-06-01 00:00:00');
+// Depuis une date précise — string : Y-m-d, Y-m-d H:i:s, ou ISO 8601
+$leads = $client->leads->since('2024-06-01');
+$leads = $client->leads->since('2024-06-01 08:00:00');
+$leads = $client->leads->since('2024-06-01T08:00:00+02:00');
 
 // Leads modifiés récemment (plutôt que créés)
 $leads = $client->leads->since(new DateTime('-1 hour'), field: 'updated_at');
@@ -116,7 +162,7 @@ $result = $client->leads->list([
 
 // $result['data'] contient les leads, $result['meta'] la pagination
 foreach ($result['data'] as $lead) {
-    echo $lead['id'] . ' — ' . $lead['customer']['first_name'] . PHP_EOL;
+    echo $lead['id'] . ' - ' . $lead['customer']['first_name'] . PHP_EOL;
 }
 echo 'Total : ' . $result['meta']['total_items'] . PHP_EOL;
 ```
@@ -174,7 +220,9 @@ $additionalFields = $client->additionalFields->list(['store_id' => 5, 'interest'
 $requestFields = $client->requestFields->list(['store_id' => 5, 'interest' => 'Location']);
 ```
 
-Toutes les ressources exposent `list(array $query = [])`. Les ressources `stores`, `users` et `customers` exposent aussi `get(int $id)`.
+Toutes les ressources exposent `list(array $query = [])` et `get(int $id)`.
+
+> Pour les ressources `leads`, `appointments`, `comments`, `reminders` et `requests`, `get(int $id)` retourne la ressource complète par son ID Scorimmo. Pour `leads->get()`, passer `include: ['customer', ...]` pour charger les relations.
 
 ---
 
@@ -343,7 +391,7 @@ class LeadController extends Controller
 
 La route `POST /webhook/scorimmo` est enregistrée automatiquement.
 
-**Étape 1 — Exclure la route du CSRF** dans `bootstrap/app.php` :
+**Étape 1 - Exclure la route du CSRF** dans `bootstrap/app.php` :
 
 ```php
 $middleware->validateCsrfTokens(except: [
@@ -351,7 +399,7 @@ $middleware->validateCsrfTokens(except: [
 ]);
 ```
 
-**Étape 2 — Écouter les événements** dans `AppServiceProvider` ou un `EventServiceProvider` :
+**Étape 2 - Écouter les événements** dans `AppServiceProvider` ou un `EventServiceProvider` :
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -383,7 +431,7 @@ Event::listen('scorimmo.new_reminder', fn(array $e) => /* ... */);
 
 ### Configuration
 
-**Étape 1 — Enregistrer le bundle** dans `config/bundles.php` :
+**Étape 1 - Enregistrer le bundle** dans `config/bundles.php` :
 
 ```php
 return [
@@ -392,7 +440,7 @@ return [
 ];
 ```
 
-**Étape 2 — Créer** `config/packages/scorimmo.yaml` :
+**Étape 2 - Créer** `config/packages/scorimmo.yaml` :
 
 ```yaml
 scorimmo:
@@ -401,7 +449,7 @@ scorimmo:
     webhook_secret: '%env(SCORIMMO_WEBHOOK_SECRET)%'
 ```
 
-**Étape 3 — Ajouter dans** `.env` :
+**Étape 3 - Ajouter dans** `.env` :
 
 ```env
 SCORIMMO_EMAIL=api@votre-agence.fr
@@ -497,22 +545,27 @@ class WebhookController extends AbstractController
 
 Retourne un lead complet par son ID Scorimmo.
 
-- `$include` : relations à charger en même temps — `'customer'`, `'seller'`, `'appointments'`, `'reminders'`, `'requests'`, `'comments'`
+- `$include` : relations à charger en même temps - `'customer'`, `'seller'`, `'appointments'`, `'reminders'`, `'requests'`, `'comments'`
 
-### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null, array $include = []): array`
+### `leads->since(string|\DateTimeInterface $date, string $field = 'created_at', int $maxPages = 100, ?int $storeId = null, array $include = [], ?callable $onProgress = null): array`
 
-Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement — le résultat est un tableau plat dédupliqué.
+Retourne tous les leads créés (ou modifiés) après `$date`. La pagination est gérée automatiquement - le résultat est un tableau plat dédupliqué.
 
+- `$date` : `DateTimeInterface` (heure préservée) ou `string` au format `Y-m-d` (ex: `"2026-05-05"`), `Y-m-d H:i:s`, ou ISO 8601 (ex: `"2026-05-05T08:00:00+02:00"`)
 - `$field` : `'created_at'` (défaut) ou `'updated_at'`
 - `$maxPages` : plafond de pages récupérées (défaut : 100, soit ~10 000 leads avec `limit=100`)
 - `$storeId` : restreint à un point de vente via le paramètre `store_id` ; `null` = tous les points de vente
 - `$include` : relations à charger (ex: `['customer', 'seller']`)
+- `$onProgress` : callback appelé après chaque page - `fn(int $page, int $count, int $total, array $meta)`
 
 ```php
 $leads = $client->leads->since(
     new DateTime('-24 hours'),
     storeId: 776,
     include: ['customer', 'seller'],
+    onProgress: function (int $page, int $count, int $total, array $meta): void {
+        echo "Page {$page} - {$total} leads récupérés\n";
+    },
 );
 ```
 
@@ -524,7 +577,7 @@ Retourne une page de leads. Le tableau `$query` accepte :
 |---|---|---|
 | `page` | `int` | Numéro de page (défaut : 1) |
 | `limit` | `int` | Résultats par page (défaut : 10, max : 100) |
-| `sort` | `string` | Tri : `'created_at:asc'`, `'created_at:desc'`, `'updated_at:desc'`, `'id:asc'` |
+| `sort` | `string` | Tri : `'champ:asc'` ou `'champ:desc'` - champs : `id`, `created_at`, `updated_at`, `status` |
 | `include` | `string` | Relations : `'customer,seller,appointments'` |
 | `store_id` | `int` | Restreindre à un point de vente |
 | `seller_id` | `int` | Restreindre à un conseiller |
@@ -564,24 +617,110 @@ Retourne `['data' => [...], 'meta' => ['total_items' => ..., 'page' => ..., 'lim
 
 ---
 
+## Référence — Ressources secondaires
+
+Toutes les ressources ci-dessous exposent `list(array $query = [])` et `get(int $id)`.
+
+### Rendez-vous - `appointments`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Filtrer par lead |
+| `store_id` | `int` | Filtrer par point de vente |
+| `canceled` | `bool` | `true` = annulés uniquement |
+| `created_at[gte/lte/eq]` | `string` | Filtres de date de création (ISO 8601) |
+| `sort` | `string` | `'id'`, `'created_at'`, `'start_time'` (avec `:asc`/`:desc`) |
+
+### Commentaires - `comments`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Filtrer par lead |
+| `store_id` | `int` | Filtrer par point de vente |
+| `user_id` | `int` | Filtrer par auteur |
+| `breadcrumb` | `string` | Filtrer par chemin d'activité |
+| `created_at[gte/lte/eq]` | `string` | Filtres de date (ISO 8601) |
+| `sort` | `string` | `'id'`, `'created_at'` (avec `:asc`/`:desc`) |
+
+### Rappels - `reminders`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Filtrer par lead |
+| `store_id` | `int` | Filtrer par point de vente |
+| `canceled` | `bool` | `true` = annulés uniquement |
+| `created_at[gte/lte/eq]` | `string` | Filtres de date (ISO 8601) |
+| `sort` | `string` | `'id'`, `'created_at'`, `'start_time'` (avec `:asc`/`:desc`) |
+
+### Demandes - `requests`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `lead_id` | `int` | Filtrer par lead |
+| `store_id` | `int` | Filtrer par point de vente |
+| `type` | `string` | Type de bien |
+| `created_at[gte/lte/eq]` | `string` | Filtres de date (ISO 8601) |
+| `sort` | `string` | `'id'`, `'created_at'` (avec `:asc`/`:desc`) |
+
+### Contacts - `customers`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `email` | `string` | Recherche par email |
+| `phone` | `string` | Recherche par téléphone |
+| `zip_code` | `string` | Filtrer par code postal |
+| `city` | `string` | Filtrer par ville |
+| `sort` | `string` | `'id'`, `'last_name'`, `'created_at'` (avec `:asc`/`:desc`) |
+
+### Origines - `origins`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `store_id` | `int` | Filtrer par point de vente |
+| `has_tracking` | `bool` | `true` = origines avec au moins un traceur actif |
+| `tracking_channel` | `string` | `'phone'` ou `'email'` |
+| `include` | `string` | `'tracking'` pour inclure les numéros/emails traceurs |
+
+---
+
 ## Référence — Gestion des tokens
 
-Le client gère automatiquement l'access token (obtenu au premier appel, renouvelé à l'expiration). Les méthodes ci-dessous permettent une gestion avancée de la session.
+Le client gère automatiquement l'access token. À chaque expiration, il tente d'abord un refresh silencieux, puis bascule sur email/password si nécessaire.
+
+### Cycle de vie recommandé
+
+```php
+// 1. Premier démarrage — authentification par identifiants
+$client = new ScorimmoClient(email: '...', password: '...');
+
+// 2. Forcer l'auth initiale et récupérer le refresh token
+$client->getToken();
+$refreshToken = $client->getRefreshToken();
+// → persister $refreshToken (cache Redis, base de données, coffre-fort…)
+
+// 3. Démarrages suivants — sans identifiants
+$refreshToken = /* charger depuis le stockage */;
+$client = new ScorimmoClient(refreshToken: $refreshToken);
+
+// 4. Après chaque session, le refresh token a tourné — le re-persister
+$client->getToken(); // déclenche le refresh si l'access token est expiré
+$nouveauRefreshToken = $client->getRefreshToken();
+// → mettre à jour le stockage
+```
+
+> **Rotation automatique :** chaque refresh token ne peut être utilisé qu'une seule fois. Le nouveau refresh token est disponible via `getRefreshToken()` après chaque renouvellement.
 
 ### `getRefreshToken(): ?string`
 
-Retourne le refresh token courant, disponible après le premier appel authentifié. Permet de persister la session pour ne pas redemander les credentials au prochain démarrage.
+Retourne le refresh token courant, disponible après le premier appel authentifié.
 
 ### `refreshAccessToken(string $refreshToken): array`
 
-Échange un refresh token contre une nouvelle paire de tokens. Chaque refresh token ne peut être utilisé qu'une seule fois (rotation automatique).
+Échange explicitement un refresh token contre une nouvelle paire de tokens et met à jour l'état interne du client.
 
 ```php
-$refreshToken = $client->getRefreshToken();
-// Persister $refreshToken (cache, session, base de données…)
-
-// Au démarrage suivant, sans repasser par le login email/password :
 $tokens = $client->refreshAccessToken($refreshToken);
+// $tokens['access_token'], $tokens['refresh_token'], $tokens['expires_at']
 ```
 
 ### `revokeToken(?string $refreshToken = null): array`
@@ -601,7 +740,7 @@ Valide l'access token courant et retourne ses métadonnées : `version`, `status
 
 ## Référence — Événements webhook
 
-### `new_lead` — Nouveau lead reçu
+### `new_lead` - Nouveau lead reçu
 
 Déclenché à la création d'un lead. Le payload est l'objet lead complet.
 
@@ -629,7 +768,7 @@ Déclenché à la création d'un lead. Le payload est l'objet lead complet.
 },
 ```
 
-### `update_lead` — Lead modifié
+### `update_lead` - Lead modifié
 
 Déclenché à chaque modification d'un lead. Le payload contient **uniquement les champs modifiés** (merge partiel), jamais l'objet complet.
 
@@ -645,12 +784,12 @@ Déclenché à chaque modification d'un lead. Le payload contient **uniquement l
 ```php
 'update_lead' => function (array $event): void {
     // $event['id'] est toujours présent
-    // $event['status'] ?? null  — nouveau statut si changé
-    // $event['seller']['id'] ?? null  — nouveau conseiller si réaffecté
+    // $event['status'] ?? null  - nouveau statut si changé
+    // $event['seller']['id'] ?? null  - nouveau conseiller si réaffecté
 },
 ```
 
-### `new_comment` — Nouveau commentaire
+### `new_comment` - Nouveau commentaire
 
 Déclenché à l'ajout d'un commentaire ou d'une note sur un lead.
 
@@ -668,7 +807,7 @@ Déclenché à l'ajout d'un commentaire ou d'une note sur un lead.
 },
 ```
 
-### `new_rdv` — Rendez-vous planifié
+### `new_rdv` - Rendez-vous planifié
 
 Déclenché à la création d'un rendez-vous sur un lead.
 
@@ -687,7 +826,7 @@ Déclenché à la création d'un rendez-vous sur un lead.
 },
 ```
 
-### `new_reminder` — Rappel planifié
+### `new_reminder` - Rappel planifié
 
 Déclenché à la création d'un rappel ou d'une relance sur un lead.
 
@@ -705,7 +844,7 @@ Déclenché à la création d'un rappel ou d'une relance sur un lead.
 },
 ```
 
-### `closure_lead` — Lead clôturé
+### `closure_lead` - Lead clôturé
 
 Déclenché à la clôture d'un lead (succès commercial ou abandon).
 

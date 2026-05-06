@@ -41,7 +41,7 @@ class LeadsResourceTest extends TestCase
             ->willReturn($this->makePage([$this->makeLead(1), $this->makeLead(2)], 2, 1));
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00');
+        $leads    = $resource->since('2026-03-01');
 
         $this->assertCount(2, $leads);
         $this->assertSame(1, $leads[0]['id']);
@@ -64,7 +64,7 @@ class LeadsResourceTest extends TestCase
             );
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00');
+        $leads    = $resource->since('2026-03-01');
 
         $this->assertCount(102, $leads);
         $this->assertSame(1, $leads[0]['id']);
@@ -79,7 +79,7 @@ class LeadsResourceTest extends TestCase
             ->willReturn($this->makePage([], 0, 1));
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00');
+        $leads    = $resource->since('2026-03-01');
 
         $this->assertCount(0, $leads);
     }
@@ -99,7 +99,7 @@ class LeadsResourceTest extends TestCase
             );
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00', 'created_at', 2);
+        $leads    = $resource->since('2026-03-01', 'created_at', 2);
 
         $this->assertCount(100, $leads);
     }
@@ -127,7 +127,7 @@ class LeadsResourceTest extends TestCase
             ->willReturn($apiResponse);
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00', 'created_at', 1);
+        $leads    = $resource->since('2026-03-01', 'created_at', 1);
 
         // Vérifie que total_items est bien lu (la boucle continuerait sans le plafond)
         $this->assertCount(10, $leads);
@@ -138,12 +138,11 @@ class LeadsResourceTest extends TestCase
         $client = $this->createMock(ScorimmoClient::class);
         $client->expects($this->once())
             ->method('request')
-            // En v2, le filtre store est un paramètre store_id= sur /api/v2/leads
             ->with('GET', $this->stringContains('store_id=776'))
             ->willReturn($this->makePage([$this->makeLead(1)], 1, 1));
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00', 'created_at', 100, 776);
+        $leads    = $resource->since('2026-03-01', 'created_at', 100, 776);
 
         $this->assertCount(1, $leads);
     }
@@ -157,7 +156,7 @@ class LeadsResourceTest extends TestCase
             ->willReturn($this->makePage([$this->makeLead(1)], 1, 1));
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00');
+        $leads    = $resource->since('2026-03-01');
 
         $this->assertCount(1, $leads);
     }
@@ -177,7 +176,7 @@ class LeadsResourceTest extends TestCase
             );
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00', 'created_at', 100, 42);
+        $leads    = $resource->since('2026-03-01', 'created_at', 100, 42);
 
         $this->assertCount(51, $leads);
     }
@@ -197,11 +196,118 @@ class LeadsResourceTest extends TestCase
             );
 
         $resource = new LeadsResource($client);
-        $leads    = $resource->since('2026-03-01 00:00:00');
+        $leads    = $resource->since('2026-03-01');
 
         $this->assertCount(55, $leads);
 
         $ids = array_column($leads, 'id');
         $this->assertSame($ids, array_unique($ids), 'No duplicate ids expected');
+    }
+
+    public function testSinceAcceptsDateTimeInterface(): void
+    {
+        $client = $this->createMock(ScorimmoClient::class);
+        $client->expects($this->once())
+            ->method('request')
+            ->willReturn($this->makePage([], 0, 1));
+
+        $resource = new LeadsResource($client);
+        $leads    = $resource->since(new \DateTime('2026-03-01 12:30:00'));
+
+        $this->assertCount(0, $leads);
+    }
+
+    public function testSinceRejectsInvalidDateStringFormat(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Y-m-d/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->since('01/03/2026'); // format européen non accepté
+    }
+
+    public function testSinceAcceptsDatetimeString(): void
+    {
+        $client = $this->createMock(ScorimmoClient::class);
+        $client->expects($this->once())
+            ->method('request')
+            ->with('GET', $this->stringContains('2026-03-01+12%3A30%3A00'))
+            ->willReturn($this->makePage([], 0, 1));
+
+        $resource = new LeadsResource($client);
+        $resource->since('2026-03-01 12:30:00');
+    }
+
+    public function testSinceAcceptsIso8601String(): void
+    {
+        $client = $this->createMock(ScorimmoClient::class);
+        $client->expects($this->once())
+            ->method('request')
+            ->with('GET', $this->stringContains('2026-03-01T12%3A30%3A00%2B02%3A00'))
+            ->willReturn($this->makePage([], 0, 1));
+
+        $resource = new LeadsResource($client);
+        $resource->since('2026-03-01T12:30:00+02:00');
+    }
+
+    public function testSinceRejectsInvalidField(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"field"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->since('2026-03-01', field: 'deleted_at');
+    }
+
+    public function testSinceRejectsMaxPagesLessThanOne(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"maxPages"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->since('2026-03-01', maxPages: 0);
+    }
+
+    public function testListRejectsInvalidLimit(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"limit"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->list(['limit' => 200]);
+    }
+
+    public function testListRejectsInvalidPage(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"page"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->list(['page' => 0]);
+    }
+
+    public function testListRejectsInvalidSortField(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"sort"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->list(['sort' => 'invalid_field:asc']);
+    }
+
+    public function testListRejectsInvalidSortDirection(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/"sort"/');
+
+        $client   = $this->createMock(ScorimmoClient::class);
+        $resource = new LeadsResource($client);
+        $resource->list(['sort' => 'created_at:random']);
     }
 }
