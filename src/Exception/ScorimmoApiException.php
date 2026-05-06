@@ -9,7 +9,7 @@ class ScorimmoApiException extends RuntimeException
     public function __construct(
         string $message,
         public readonly int $statusCode,
-        public readonly ?int $apiCode = null,
+        public readonly string|int|null $apiCode = null,
     ) {
         parent::__construct($message, $statusCode);
     }
