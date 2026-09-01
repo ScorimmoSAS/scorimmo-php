@@ -9,6 +9,9 @@ namespace Scorimmo\Client;
  *  GET    /api/v2/leads          → list()
  *  GET    /api/v2/leads/{id}     → get()
  *  PATCH  /api/v2/leads/{id}     → update()
+ *
+ * La création de leads n'est volontairement pas exposée par le SDK : les leads doivent être
+ * créés via l'interface Scorimmo ou via un canal dédié (formulaires, webcallbacks, imports).
  */
 class LeadsResource extends AbstractResource
 {
@@ -26,15 +29,15 @@ class LeadsResource extends AbstractResource
     /**
      * Récupère un lead unique par son identifiant.
      *
-     * @param  string[] $query  Relations à charger :
-     *                          'customer', 'seller', 'appointments', 'reminders', 'requests', 'comments'
+     * @param  string[] $include  Relations à charger :
+     *                            'customer', 'seller', 'appointments', 'reminders', 'requests', 'comments'
      * @return array<string, mixed>
      */
-    public function get(int $id, array $query = []): array
+    public function get(int $id, array $include = []): array
     {
         $params = [];
-        if (!empty($query)) {
-            $params['include'] = implode(',', $query);
+        if (!empty($include)) {
+            $params['include'] = implode(',', $include);
         }
         return parent::get($id, $params);
     }
@@ -84,6 +87,9 @@ class LeadsResource extends AbstractResource
 
     /**
      * Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés).
+     *
+     * Champs modifiables via PATCH : seller_id, origin, external_lead_id,
+     * external_customer_id, additional_fields (remplacement complet du bloc).
      *
      * @param  array<string, mixed> $data  Champs à modifier
      * @return array<string, mixed>        Lead mis à jour

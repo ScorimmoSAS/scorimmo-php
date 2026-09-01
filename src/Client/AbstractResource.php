@@ -16,7 +16,7 @@ abstract class AbstractResource
     /**
      * Récupère une ressource unique par son identifiant.
      *
-     * @param  array<string, scalar> $query  Paramètres additionnels (ex: ['include' => 'customer'])
+     * @param  array<string, scalar|null> $query  Paramètres additionnels (ex: ['include' => 'customer'])
      * @return array<string, mixed>
      */
     public function get(int $id, array $query = []): array
@@ -31,7 +31,7 @@ abstract class AbstractResource
      * Paramètres communs : page (int, défaut 1), limit (int, 1–100, défaut 10), sort (string).
      * La validation de limit et page est appliquée automatiquement.
      *
-     * @param  array<string, scalar> $query
+     * @param  array<string, scalar|null> $query
      * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
      * @throws \InvalidArgumentException Si limit ou page ont une valeur invalide
      */
@@ -51,6 +51,9 @@ abstract class AbstractResource
      * Valide les paramètres de pagination communs à toutes les ressources.
      *
      * @throws \InvalidArgumentException
+     */
+    /**
+     * @param array<string, mixed> $query
      */
     protected function assertValidPagination(array $query): void
     {

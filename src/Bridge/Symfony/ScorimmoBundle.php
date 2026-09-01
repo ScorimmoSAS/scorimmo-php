@@ -3,18 +3,16 @@
 namespace Scorimmo\Bridge\Symfony;
 
 use Scorimmo\Bridge\Symfony\DependencyInjection\ScorimmoExtension;
-use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
+/**
+ * Bundle Symfony `scorimmo` — inscrit {@see ScorimmoExtension} qui expose ScorimmoClient
+ * et ScorimmoWebhook comme services publics du conteneur.
+ */
 class ScorimmoBundle extends AbstractBundle
 {
     public function getContainerExtension(): ScorimmoExtension
     {
         return new ScorimmoExtension();
-    }
-
-    public function build(ContainerBuilder $container): void
-    {
-        parent::build($container);
     }
 }

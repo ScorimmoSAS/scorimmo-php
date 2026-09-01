@@ -36,7 +36,7 @@ echo "\nStore #42: " . count($storeLeads) . " leads\n";
 
 // ── Récupérer un lead par son ID (avec toutes ses relations) ─────────────────
 try {
-    $lead = $client->leads->get(42, query: ['customer', 'seller', 'appointments', 'comments']);
+    $lead = $client->leads->get(42, include: ['customer', 'seller', 'appointments', 'comments']);
     echo "\nLead #42: " . json_encode($lead, JSON_PRETTY_PRINT) . "\n";
 } catch (ScorimmoApiException $e) {
     if ($e->statusCode === 404) {
@@ -75,7 +75,7 @@ echo "\nStatuts disponibles : " . $statuses['meta']['total_items'] . "\n";
 // Récupérer le refresh token pour le persister côté appelant
 $client->getToken(); // force la première auth
 $refreshToken = $client->getRefreshToken();
-echo "\nRefresh token: " . substr($refreshToken, 0, 8) . "...\n";
+echo "\nRefresh token: " . substr($refreshToken ?? '', 0, 8) . "...\n";
 
 // Renouveler l'access token sans les credentials
 $newTokens = $client->refreshAccessToken($refreshToken);

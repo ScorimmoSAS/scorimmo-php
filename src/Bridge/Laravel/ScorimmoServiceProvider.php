@@ -8,6 +8,10 @@ use Illuminate\Support\ServiceProvider;
 use Scorimmo\Client\ScorimmoClient;
 use Scorimmo\Webhook\ScorimmoWebhook;
 
+/**
+ * Enregistre les singletons ScorimmoClient et ScorimmoWebhook, publie la configuration
+ * `scorimmo.php` et charge la route webhook `POST {webhook_path}` (par défaut `webhook/scorimmo`).
+ */
 class ScorimmoServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -25,8 +29,8 @@ class ScorimmoServiceProvider extends ServiceProvider
 
         $this->app->singleton(ScorimmoWebhook::class, function () {
             return new ScorimmoWebhook(
-                headerValue: Config::get('scorimmo.webhook_secret'),
-                headerKey:   Config::get('scorimmo.webhook_header', 'X-Scorimmo-Key'),
+                signatureSecret: Config::get('scorimmo.webhook_signature_secret'),
+                signatureHeader: Config::get('scorimmo.webhook_signature_header', ScorimmoWebhook::DEFAULT_SIGNATURE_HEADER),
             );
         });
     }

@@ -2,24 +2,22 @@
 
 return [
     /*
-     | Identifiants API fournis par votre account manager Scorimmo
-     | ou disponibles dans votre espace pro.scorimmo.com
-     |
-     | Depuis l'API v2, l'identifiant est l'adresse email du compte API.
+     | Identifiants API v2 fournis par votre account manager Scorimmo
+     | ou disponibles dans votre espace pro.scorimmo.com.
      */
     'email'    => env('SCORIMMO_EMAIL'),
     'password' => env('SCORIMMO_PASSWORD'),
     'base_url' => env('SCORIMMO_URL', 'https://pro.scorimmo.com'),
 
     /*
-     | Webhook : secret partagé avec Scorimmo pour authentifier les appels entrants.
-     | À communiquer à votre account manager ou à assistance@scorimmo.com.
+     | Webhook — authentification par signature HMAC-SHA256.
      |
-     | La clé du header (webhook_header) est configurable par point de vente ;
-     | la valeur par défaut 'X-Scorimmo-Key' est utilisée si non précisée.
+     | Scorimmo signe le corps brut de chaque requête webhook avec ce secret et l'envoie
+     | dans un header dédié (par défaut : X-Signature-256, valeur "sha256=<hex>").
+     | Le SDK vérifie la signature en temps constant.
      */
-    'webhook_secret' => env('SCORIMMO_WEBHOOK_SECRET'),
-    'webhook_header' => env('SCORIMMO_WEBHOOK_HEADER', 'X-Scorimmo-Key'),
+    'webhook_signature_secret' => env('SCORIMMO_WEBHOOK_SIGNATURE_SECRET'),
+    'webhook_signature_header' => env('SCORIMMO_WEBHOOK_SIGNATURE_HEADER', 'X-Signature-256'),
 
     /*
      | Route exposée pour recevoir les webhooks Scorimmo.

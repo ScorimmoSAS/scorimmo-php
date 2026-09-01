@@ -17,8 +17,8 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(ScorimmoWebhook::class)
         ->args([
-            '%scorimmo.webhook_secret%',
-            '%scorimmo.webhook_header%',
+            '%scorimmo.webhook_signature_secret%',
+            '%scorimmo.webhook_signature_header%',
         ])
         ->public();
 };

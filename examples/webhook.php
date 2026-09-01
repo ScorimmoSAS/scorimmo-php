@@ -1,15 +1,21 @@
 <?php
 
 /**
- * Example: Receive Scorimmo webhooks in a plain PHP endpoint
+ * Example: Receive Scorimmo webhooks in a plain PHP endpoint (API v2).
  *
- * Place this file at your webhook URL (e.g. https://your-crm.com/webhook/scorimmo.php)
+ * Place this file at your webhook URL (e.g. https://your-crm.com/webhook/scorimmo.php).
  *
- * Headers envoyés par Scorimmo sur chaque requête webhook :
- *  - {X-Scorimmo-Key}      : valeur du secret configuré sur le point de vente (authentification)
- *  - X-Scorimmo-Event      : nom sémantique de l'événement (ex: 'lead.created', 'lead.updated')
- *  - X-Scorimmo-Version    : version de l'API émettrice (ex: '2.0.0')
- *  - User-Agent            : 'Scorimmo/<version>'
+ * Headers envoyés par Scorimmo sur chaque requête webhook v2 :
+ *  - X-Signature-256    : sha256=<hex(hmac_sha256(rawBody, secret))> — vérifie l'origine
+ *  - X-Scorimmo-Event   : nom sémantique (ex: 'lead.created') ; 'webhook.<name>' pour un événement futur
+ *  - X-Scorimmo-Version : date de la version d'API (ex: '2026-04-20')
+ *  - User-Agent         : 'Scorimmo/<app_version>'
+ *
+ * IMPORTANT : le corps brut (php://input) doit être lu AVANT tout json_decode(),
+ * sinon la signature ne pourra pas être vérifiée.
+ *
+ * Idempotence : Scorimmo effectue jusqu'à 6 livraisons (retries exponentiels).
+ * Dédupliquez par (event, lead_id, created_at/updated_at) côté récepteur.
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -19,8 +25,8 @@ use Scorimmo\Exception\WebhookValidationException;
 use Scorimmo\Webhook\ScorimmoWebhook;
 
 $webhook = new ScorimmoWebhook(
-    headerValue: $_ENV['SCORIMMO_WEBHOOK_SECRET'] ?? 'change-me',
-    headerKey:   'X-Scorimmo-Key',
+    signatureSecret: $_ENV['SCORIMMO_WEBHOOK_SIGNATURE_SECRET'] ?? 'change-me',
+    // signatureHeader: 'X-Signature-256', // valeur par défaut
 );
 
 $headers = getallheaders() ?: [];
@@ -31,58 +37,66 @@ try {
 
         /**
          * Nouveau lead reçu.
-         * Payload inclut : id, store_id, interest, status, origin, purpose, contact_type,
-         * customer (first_name, last_name, email, phone…), seller, requests (biens), comments.
+         * Payload : id, store_id, interest, status, origin, contact_type, seller_present_on_creation,
+         * customer (first_name, last_name, email, phone, other_phone, pro, legal_name, former, ...),
+         * seller (id, first_name, last_name, email, is_virtual?),
+         * requests (array de biens avec clés en français : "Type de bien", "Prix", "Surface", "Ville", ...),
+         * additional_fields (purpose, residence_type, funding_type, ...),
+         * comments (array), external_lead_id?, external_customer_id?.
          */
         'new_lead' => function (array $lead): void {
             $name = trim(($lead['customer']['first_name'] ?? '') . ' ' . ($lead['customer']['last_name'] ?? ''));
             error_log("[new_lead] #{$lead['id']} — {$name} — {$lead['interest']}");
-            // TODO: créer le contact dans votre CRM
+            // TODO: créer le contact dans votre CRM (idempotent : dédupliquer sur lead['id'])
         },
 
         /**
-         * Lead mis à jour.
-         * Payload inclut : id, updated_at, et uniquement les champs modifiés (merge partiel).
+         * Lead mis à jour — payload sparse : uniquement les champs modifiés
+         * (peut inclure customer, seller, requests, additional_fields, store_id, ...).
          */
         'update_lead' => function (array $event): void {
             error_log("[update_lead] #{$event['id']} mis à jour le {$event['updated_at']}");
-            // TODO: synchroniser les changements dans votre CRM
+            // TODO: merger les changements dans votre CRM
         },
 
         /**
-         * Nouveau commentaire ou note ajouté sur un lead.
-         * Payload inclut : lead_id, comment, created_at, external_lead_id.
+         * Nouveau commentaire/note. Payload : lead_id, comment, created_at, external_lead_id?.
          */
         'new_comment' => function (array $event): void {
             error_log("[new_comment] Lead #{$event['lead_id']}: \"{$event['comment']}\"");
-            // TODO: ajouter une note/activité dans votre CRM
         },
 
         /**
-         * Rendez-vous planifié sur un lead.
-         * Payload inclut : lead_id, start_time, location, detail, comment, external_lead_id.
+         * Rendez-vous. Payload : lead_id, start_time, location, detail (nullable),
+         * comment, created_at, external_lead_id?.
          */
         'new_rdv' => function (array $event): void {
-            error_log("[new_rdv] Lead #{$event['lead_id']}: {$event['start_time']} — {$event['detail']}");
-            // TODO: créer l'événement dans votre calendrier CRM
+            error_log("[new_rdv] Lead #{$event['lead_id']}: {$event['start_time']} — " . ($event['detail'] ?? 'RDV'));
         },
 
         /**
-         * Rappel planifié sur un lead.
-         * Payload inclut : lead_id, start_time, detail, comment, external_lead_id.
+         * Rappel. Payload : lead_id, start_time, detail ('offer'|'recontact'),
+         * comment, created_at, external_lead_id?.
          */
         'new_reminder' => function (array $event): void {
             error_log("[new_reminder] Lead #{$event['lead_id']}: {$event['start_time']} — {$event['detail']}");
-            // TODO: créer le rappel dans votre CRM
         },
 
         /**
-         * Lead clôturé (succès ou échec).
-         * Payload inclut : lead_id, status (ex: 'SUCCESS'), close_reason, external_lead_id.
+         * Lead clôturé. Payload : lead_id, status (libellé français :
+         * 'Succès', 'Fermé', 'Fermé par l\'opérateur'), close_reason?, external_lead_id?.
          */
         'closure_lead' => function (array $event): void {
-            error_log("[closure_lead] Lead #{$event['lead_id']} — {$event['status']}: {$event['close_reason']}");
-            // TODO: archiver le contact dans votre CRM
+            $reason = $event['close_reason'] ?? '—';
+            error_log("[closure_lead] Lead #{$event['lead_id']} — {$event['status']}: {$reason}");
+        },
+
+        /**
+         * Événement futur non encore modélisé (arrivé avec X-Scorimmo-Event: webhook.<name>).
+         * Loguez pour analyse : Scorimmo peut ajouter de nouveaux événements sans breaking change.
+         */
+        'unknown' => function (array $event): void {
+            error_log('[scorimmo.unknown_event] ' . json_encode($event));
         },
 
     ]);

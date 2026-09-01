@@ -45,6 +45,8 @@ use Scorimmo\Exception\ScorimmoAuthException;
  *  @property-read OriginsResource          $origins          Référentiel des origines
  *  @property-read AdditionalFieldsResource $additionalFields Champs additionnels par agence/intérêt
  *  @property-read RequestFieldsResource    $requestFields    Champs de demande par agence/intérêt
+ *  @property-read FormResource             $form             Soumission de formulaires publics (ROLE_API_FORM_WRITE)
+ *  @property-read WebCallbacksResource     $webCallbacks     Déclenchement d'appels sortants (auth par clé WCB)
  */
 class ScorimmoClient
 {
@@ -73,6 +75,8 @@ class ScorimmoClient
     public readonly OriginsResource          $origins;
     public readonly AdditionalFieldsResource $additionalFields;
     public readonly RequestFieldsResource    $requestFields;
+    public readonly FormResource             $form;
+    public readonly WebCallbacksResource     $webCallbacks;
 
     public function __construct(
         private readonly ?string $email = null,
@@ -116,19 +120,8 @@ class ScorimmoClient
         $this->origins          = new OriginsResource($this);
         $this->additionalFields = new AdditionalFieldsResource($this);
         $this->requestFields    = new RequestFieldsResource($this);
-    }
-
-    // ── Raccourcis leads ──────────────────────────────────────────────────────────
-
-    /**
-     * Mise à jour partielle d'un lead (seuls les champs transmis sont modifiés).
-     *
-     * @param  array<string, mixed> $data
-     * @return array<string, mixed>
-     */
-    public function updateLead(int $id, array $data): array
-    {
-        return $this->leads->update($id, $data);
+        $this->form             = new FormResource($this);
+        $this->webCallbacks     = new WebCallbacksResource($this);
     }
 
     // ── Gestion des tokens ────────────────────────────────────────────────────────
@@ -249,6 +242,7 @@ class ScorimmoClient
      *
      * @param  string|null $refreshToken  null = révoquer tous les tokens
      * @return array<string, mixed>
+     * @throws ScorimmoApiException
      */
     public function revokeToken(?string $refreshToken = null): array
     {
@@ -288,11 +282,26 @@ class ScorimmoClient
      *
      * @param  mixed $body  Corps JSON ; null = pas de corps
      * @return array<string, mixed>
-     * @throws ScorimmoApiException
+     * @throws ScorimmoApiException  Erreur HTTP renvoyée par l'API
+     * @throws ScorimmoAuthException Échec d'obtention/refresh de l'access token
      */
     public function request(string $method, string $path, mixed $body = null): array
     {
         return $this->rawRequest($method, $path, $body, authenticate: true);
+    }
+
+    /**
+     * Effectue une requête sans authentification Bearer (utilisé par les endpoints qui portent
+     * leur propre mécanisme d'auth dans le body, ex: POST /api/v2/webcallbacks avec sa clé WCB).
+     *
+     * @param  mixed $body
+     * @return array<string, mixed>
+     * @throws ScorimmoApiException  Erreur HTTP renvoyée par l'API
+     * @throws ScorimmoAuthException Réponse 401 renvoyée par l'endpoint
+     */
+    public function requestUnauthenticated(string $method, string $path, mixed $body = null): array
+    {
+        return $this->rawRequest($method, $path, $body, authenticate: false);
     }
 
     /**

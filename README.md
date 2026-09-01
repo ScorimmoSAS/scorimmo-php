@@ -42,7 +42,7 @@ Les identifiants (`email` / `password`) sont ceux fournis par Scorimmo. L'identi
 
 Après le premier appel authentifié, un **refresh token** est disponible via `getRefreshToken()`. Il permet de réinitialiser le client sans repasser par les identifiants (voir [Gestion des tokens](#référence--gestion-des-tokens)).
 
-Pour le webhook, le secret (`SCORIMMO_WEBHOOK_SECRET`) est une valeur que vous choisissez librement - communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
+Pour le webhook, le secret HMAC (`SCORIMMO_WEBHOOK_SIGNATURE_SECRET`) est une valeur que vous choisissez librement - communiquez-la ensuite à Scorimmo lors de la configuration (voir [Configurer le webhook chez Scorimmo](#configurer-le-webhook-chez-scorimmo)).
 
 ---
 
@@ -232,14 +232,30 @@ Les webhooks permettent à Scorimmo de notifier votre application en temps réel
 
 ### Initialisation
 
+L'authentification des webhooks est **optionnelle** — la sécurisation de l'endpoint est à la charge de l'intégrateur. Scorimmo propose plusieurs mécanismes complémentaires :
+
+1. **Signature HMAC-SHA256** (fortement recommandé) — Scorimmo signe le corps brut avec un secret partagé et envoie la signature dans le header `X-Signature-256` sous la forme `sha256=<hex>`. Le SDK la vérifie en temps constant.
+2. **HTTP Basic auth via URL** — enregistrez le webhook comme `https://user:pass@host/path`, l'auth est déléguée au serveur/framework, transparente pour le SDK.
+3. **Restriction réseau** (IP whitelist, VPN, mTLS…) — hors périmètre du SDK.
+
+**Avec signature HMAC (recommandé) :**
+
 ```php
 use Scorimmo\Webhook\ScorimmoWebhook;
 
 $webhook = new ScorimmoWebhook(
-    headerValue: 'votre-secret-webhook',
-    headerKey: 'X-Scorimmo-Key', // valeur par défaut, modifiable
+    signatureSecret: 'votre-secret-hmac',
+    // signatureHeader: 'X-Signature-256', // valeur par défaut, personnalisable
 );
 ```
+
+**Sans vérification** (auth déportée sur le serveur) :
+
+```php
+$webhook = new ScorimmoWebhook();
+```
+
+> **Important :** si vous activez la signature, le corps brut (`php://input`) doit être lu **avant tout `json_decode()`**, sinon la signature ne pourra pas être vérifiée.
 
 ### Traitement d'une requête entrante
 
@@ -306,16 +322,18 @@ try {
 
 ### Headers webhook v2
 
-Chaque requête webhook envoyée par Scorimmo inclut deux headers supplémentaires :
+Chaque requête webhook envoyée par Scorimmo inclut ces headers :
 
 | Header | Exemple | Description |
 |---|---|---|
+| `X-Signature-256` | `sha256=8f4c…` | Signature HMAC-SHA256 du corps brut (présent si vous avez configuré un secret ; nom personnalisable) |
 | `X-Scorimmo-Event` | `lead.created` | Nom sémantique de l'événement |
-| `X-Scorimmo-Version` | `2.0.0` | Version de l'API ayant émis l'événement |
+| `X-Scorimmo-Version` | `2026-04-20` | Version d'API (date, format `YYYY-MM-DD` — pas un numéro sémantique) |
+| `User-Agent` | `Scorimmo/1.42.0` | Version applicative Scorimmo (distincte de `X-Scorimmo-Version`) |
 
 ```php
 $eventName  = $webhook->getSemanticEvent(getallheaders()); // ex: 'lead.created'
-$apiVersion = $webhook->getApiVersion(getallheaders());    // ex: '2.0.0'
+$apiVersion = $webhook->getApiVersion(getallheaders());    // ex: '2026-04-20'
 ```
 
 Correspondance entre le champ `event` du payload et `X-Scorimmo-Event` :
@@ -328,6 +346,15 @@ Correspondance entre le champ `event` du payload et `X-Scorimmo-Event` :
 | `new_comment` | `lead.comment_added` |
 | `new_rdv` | `lead.appointment_created` |
 | `new_reminder` | `lead.reminder_created` |
+| _(événement futur inconnu)_ | `webhook.<name>` |
+
+> Enregistrez un handler `'unknown'` pour capturer les événements futurs non encore modélisés — Scorimmo peut ajouter de nouveaux événements sans breaking change.
+
+### Idempotence & retries
+
+Scorimmo effectue jusqu'à **6 tentatives de livraison** (initial + 5 retries) avec backoff exponentiel (5 s → 60 s max). Le corps et la signature sont identiques à chaque retry.
+
+Aucun `Idempotency-Key` n'est envoyé — votre receveur doit être idempotent, typiquement en dédupliquant sur `(event, lead_id, created_at)` ou `(event, id, updated_at)` selon le type d'événement.
 
 ### Configurer le webhook chez Scorimmo
 
@@ -335,9 +362,15 @@ Une fois votre endpoint déployé, transmettez les informations suivantes à vot
 
 ```
 URL du webhook : https://votre-app.com/webhook/scorimmo
-En-tête d'authentification :
-  Clé   : X-Scorimmo-Key
-  Valeur : [votre SCORIMMO_WEBHOOK_SECRET]
+
+Authentification (au choix, fortement recommandé) :
+  Option A - Signature HMAC-SHA256
+    Header : X-Signature-256   (nom personnalisable)
+    Valeur : sha256=<hex(hmac_sha256(rawBody, secret))>
+    Secret : [votre SCORIMMO_WEBHOOK_SIGNATURE_SECRET]
+
+  Option B - HTTP Basic auth via URL
+    URL : https://user:pass@votre-app.com/webhook/scorimmo
 
 Événements à activer :
   ☑ Nouveau lead        (new_lead)
@@ -365,7 +398,7 @@ Dans votre `.env` :
 ```env
 SCORIMMO_EMAIL=api@votre-agence.fr
 SCORIMMO_PASSWORD=votre-mot-de-passe
-SCORIMMO_WEBHOOK_SECRET=votre-secret-webhook
+SCORIMMO_WEBHOOK_SIGNATURE_SECRET=votre-secret-hmac
 ```
 
 Le service provider est enregistré automatiquement via la découverte de packages Laravel.
@@ -444,9 +477,9 @@ return [
 
 ```yaml
 scorimmo:
-    email:          '%env(SCORIMMO_EMAIL)%'
-    password:       '%env(SCORIMMO_PASSWORD)%'
-    webhook_secret: '%env(SCORIMMO_WEBHOOK_SECRET)%'
+    email:                    '%env(SCORIMMO_EMAIL)%'
+    password:                 '%env(SCORIMMO_PASSWORD)%'
+    webhook_signature_secret: '%env(SCORIMMO_WEBHOOK_SIGNATURE_SECRET)%'
 ```
 
 **Étape 3 - Ajouter dans** `.env` :
@@ -454,7 +487,7 @@ scorimmo:
 ```env
 SCORIMMO_EMAIL=api@votre-agence.fr
 SCORIMMO_PASSWORD=votre-mot-de-passe
-SCORIMMO_WEBHOOK_SECRET=votre-secret-webhook
+SCORIMMO_WEBHOOK_SIGNATURE_SECRET=votre-secret-hmac
 ```
 
 ### Utiliser le client
@@ -681,6 +714,64 @@ Toutes les ressources ci-dessous exposent `list(array $query = [])` et `get(int 
 | `tracking_channel` | `string` | `'phone'` ou `'email'` |
 | `include` | `string` | `'tracking'` pour inclure les numéros/emails traceurs |
 
+### Utilisateurs - `users`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `store_id` | `int` | Filtrer par point de vente |
+| `interest` | `string` | Filtrer par intérêt (`TRANSACTION`, `LOCATION`…) |
+| `role` | `string` | `'admin'`, `'manager'`, `'agent'` ou `'virtual'` |
+| `sort` | `string` | `'id'`, `'last_name'`, `'created_at'` (avec `:asc`/`:desc`) |
+
+### Statuts - `status`
+
+| Paramètre | Type | Description |
+|---|---|---|
+| `ids` | `string` | Liste d'ids séparés par virgule |
+| `interest` | `string` | Liste CSV d'intérêts (ex: `'TRANSACTION,LOCATION'`) |
+| `store_id` | `string` | Liste CSV d'ids de points de vente (ex: `'1,2,3'`) |
+
+Réponse : `[{ label, sub_status[]|null }, …]`.
+
+### Points de vente - `stores`, Champs additionnels - `additionalFields`, Champs de demande - `requestFields`
+
+Liste paginée simple. Utilisez `store_id` / `interest` pour filtrer les champs. Aucun paramètre spécifique au-delà des filtres de pagination.
+
+### Formulaires publics - `form`
+
+Soumission d'un formulaire de contact qui crée un lead et envoie un email au destinataire. **Scope requis : `ROLE_API_FORM_WRITE`** (à demander séparément de `lead:write`).
+
+```php
+$response = $client->form->submit([
+    'store_id'   => 776,
+    'libelle_id' => 12,
+    'to_email'   => 'contact@agence.fr',      // ou array de destinataires
+    'origin'     => 'Site web',
+    'message'    => 'Je souhaite visiter le bien X.',
+    'subject'    => 'Demande de visite',       // optionnel
+    'customer'   => [
+        'civility'   => 'M.',
+        'first_name' => 'Jean',
+        'last_name'  => 'Dupont',
+        'email'      => 'jean@example.com',
+        'phone'      => '0612345678',
+    ],
+    'requests'          => [/* array de {label => valeur} */],
+    'additional_fields' => [/* array de {label => valeur} */],
+    'external_lead_id'  => 'CRM-12345',        // optionnel
+]);
+// $response = ['status' => 200, 'message' => 'email created', 'id' => 42, 'store_id' => 776, ...]
+```
+
+### Appels sortants - `webCallbacks`
+
+Déclenche un appel depuis le PBX Scorimmo vers un numéro. **N'utilise pas** l'authentification Bearer : passez la clé personnelle `WebCallback` fournie par Scorimmo pour votre point de vente.
+
+```php
+$client->webCallbacks->launch('votre-cle-wcb', '+33612345678');
+// ['results' => ['...'], 'information' => 200]
+```
+
 ---
 
 ## Référence — Gestion des tokens
@@ -851,14 +942,14 @@ Déclenché à la clôture d'un lead (succès commercial ou abandon).
 | Champ | Type | Description |
 |---|---|---|
 | `lead_id` | `int` | Identifiant du lead clôturé |
-| `status` | `string` | `SUCCESS` (vente/location conclue), `CLOSED` (abandonné), `CLOSE_OPERATOR` (clôturé par l'opérateur) |
-| `close_reason` | `string` | Motif de clôture |
+| `status` | `string` | Libellé du statut de clôture : `Succès` (vente/location conclue), `Fermé` (abandonné), `Fermé par l'opérateur` |
+| `close_reason` | `string\|null` | Motif de clôture (présent uniquement quand `status` = `Fermé` ou `Succès`) |
 | `external_lead_id` | `string\|null` | Référence CRM du lead, si renseignée |
 
 ```php
 'closure_lead' => function (array $event): void {
-    // $event['lead_id'], $event['status'], $event['close_reason']
-    if ($event['status'] === 'SUCCESS') {
+    // $event['lead_id'], $event['status'], $event['close_reason'] ?? null
+    if ($event['status'] === 'Succès') {
         // Vente ou location conclue
     }
 },
