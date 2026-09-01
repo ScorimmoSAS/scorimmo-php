@@ -12,6 +12,9 @@ namespace Scorimmo\Client;
  *
  * La création de leads n'est volontairement pas exposée par le SDK : les leads doivent être
  * créés via l'interface Scorimmo ou via un canal dédié (formulaires, webcallbacks, imports).
+ *
+ * @scope ROLE_API_LEAD_READ (lead:read) pour get() / list() / since()
+ * @scope ROLE_API_LEAD_WRITE (lead:write) pour update()
  */
 class LeadsResource extends AbstractResource
 {
@@ -32,6 +35,8 @@ class LeadsResource extends AbstractResource
      * @param  string[] $include  Relations à charger :
      *                            'customer', 'seller', 'appointments', 'reminders', 'requests', 'comments'
      * @return array<string, mixed>
+     *
+     * @scope ROLE_API_LEAD_READ (lead:read)
      */
     public function get(int $id, array $include = []): array
     {
@@ -75,6 +80,8 @@ class LeadsResource extends AbstractResource
      *
      * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
      * @throws \InvalidArgumentException Si sort, limit ou page ont une valeur invalide
+     *
+     * @scope ROLE_API_LEAD_READ (lead:read)
      */
     public function list(array $query = []): array
     {
@@ -93,6 +100,8 @@ class LeadsResource extends AbstractResource
      *
      * @param  array<string, mixed> $data  Champs à modifier
      * @return array<string, mixed>        Lead mis à jour
+     *
+     * @scope ROLE_API_LEAD_WRITE (lead:write)
      */
     public function update(int $id, array $data): array
     {
@@ -119,6 +128,8 @@ class LeadsResource extends AbstractResource
      *
      * @return array<int, array<string, mixed>>
      * @throws \InvalidArgumentException Si date, field ou maxPages ont une valeur invalide
+     *
+     * @scope ROLE_API_LEAD_READ (lead:read)
      */
     public function since(
         string|\DateTimeInterface $date,

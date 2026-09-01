@@ -11,6 +11,8 @@ namespace Scorimmo\Client;
  *
  * Filtres disponibles : lead_id, store_id, type, created_at[gte|lte|eq]
  * Tri disponible      : id, created_at
+ *
+ * @scope ROLE_API_LEAD_READ (lead:read)
  */
 class RequestsResource extends AbstractResource
 {

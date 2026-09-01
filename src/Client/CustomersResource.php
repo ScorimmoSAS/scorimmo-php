@@ -9,7 +9,7 @@ namespace Scorimmo\Client;
  *  GET  /api/v2/customers        → list()
  *  GET  /api/v2/customers/{id}   → get()
  *
- * Scope requis : ref:read.
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class CustomersResource extends AbstractResource
 {

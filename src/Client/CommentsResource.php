@@ -11,6 +11,8 @@ namespace Scorimmo\Client;
  *
  * Filtres disponibles : lead_id, store_id, user_id, breadcrumb, created_at[gt|gte|lt|lte|eq]
  * Tri disponible      : id, created_at
+ *
+ * @scope ROLE_API_LEAD_READ (lead:read)
  */
 class CommentsResource extends AbstractResource
 {

@@ -11,6 +11,8 @@ namespace Scorimmo\Client;
  *
  * Filtres disponibles : lead_id, store_id, canceled, created_at[gt|gte|lt|lte|eq]
  * Tri disponible      : id, created_at, start_time
+ *
+ * @scope ROLE_API_LEAD_READ (lead:read)
  */
 class RemindersResource extends AbstractResource
 {

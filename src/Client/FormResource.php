@@ -9,13 +9,13 @@ namespace Scorimmo\Client;
  * (landing pages, formulaires de contact, portails partenaires). Il crée un lead dans le CRM
  * après notification email au(x) destinataire(s) indiqué(s).
  *
- * Scope requis : ROLE_API_FORM_WRITE (à demander séparément de lead:write).
- *
  * Endpoints couverts :
  *  POST  /api/v2/form   → submit()
  *
  * Le référentiel des champs autorisés (requests, additional_fields) est disponible via
  * RequestFieldsResource et AdditionalFieldsResource.
+ *
+ * @scope ROLE_API_FORM_WRITE (pas de scope JWT court — à demander séparément de lead:write)
  */
 class FormResource extends AbstractResource
 {
@@ -48,6 +48,8 @@ class FormResource extends AbstractResource
      *
      * @return array{status: int, message: string, id: int, store_id: int, libelle_id: int, origin: string}
      * @throws \InvalidArgumentException Si un champ requis est manquant
+     *
+     * @scope ROLE_API_FORM_WRITE (pas de scope JWT court)
      */
     public function submit(array $data): array
     {

@@ -11,7 +11,7 @@ namespace Scorimmo\Client;
  *
  * Chaque utilisateur inclut son rôle ('admin', 'manager', 'agent', 'virtual'),
  * ses intérêts et son statut is_virtual.
- * Scope requis : ref:read.
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class UsersResource extends AbstractResource
 {

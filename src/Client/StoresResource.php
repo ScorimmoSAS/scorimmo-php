@@ -11,6 +11,8 @@ namespace Scorimmo\Client;
  *
  * L'accès est limité aux stores inclus dans le JWT (champ 'stores').
  * Tri disponible : id, name
+ *
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class StoresResource extends AbstractResource
 {

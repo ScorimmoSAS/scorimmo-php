@@ -27,10 +27,16 @@ class ScorimmoServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(ScorimmoWebhook::class, function () {
+        $this->app->singleton(ScorimmoWebhook::class, function (Application $app) {
+            // Logger PSR-3 optionnel : trace en `warning` les événements sans handler ni fallback.
+            $logger = $app->bound(\Psr\Log\LoggerInterface::class)
+                ? $app->make(\Psr\Log\LoggerInterface::class)
+                : null;
+
             return new ScorimmoWebhook(
                 signatureSecret: Config::get('scorimmo.webhook_signature_secret'),
                 signatureHeader: Config::get('scorimmo.webhook_signature_header', ScorimmoWebhook::DEFAULT_SIGNATURE_HEADER),
+                logger:          $logger,
             );
         });
     }

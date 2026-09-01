@@ -11,7 +11,7 @@ namespace Scorimmo\Client;
  * Utiliser le champ `label` retourné comme valeur du filtre `origin` dans leads->list()
  * et comme valeur du paramètre `origin` dans POST /api/v2/form.
  *
- * Scope requis : ref:read.
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class OriginsResource extends AbstractResource
 {

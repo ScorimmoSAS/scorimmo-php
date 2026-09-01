@@ -11,6 +11,8 @@ namespace Scorimmo\Client;
  *
  * Endpoints couverts :
  *  POST  /api/v2/webcallbacks   → launch()
+ *
+ * @scope aucun (clé WCB en body)
  */
 class WebCallbacksResource extends AbstractResource
 {
@@ -26,6 +28,8 @@ class WebCallbacksResource extends AbstractResource
      * @param  string $numberToCall  Numéro de téléphone destinataire au format international ou local
      * @return array{results: array<int, string>, information: int}
      * @throws \InvalidArgumentException Si l'un des deux paramètres est vide
+     *
+     * @scope aucun (clé WCB en body)
      */
     public function launch(string $key, string $numberToCall): array
     {

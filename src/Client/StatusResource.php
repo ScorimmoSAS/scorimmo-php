@@ -12,7 +12,9 @@ namespace Scorimmo\Client;
  * Exemple de réponse : [{ "label": "Succès", "sub_status": ["Loué", "Mandat"] }, ...]
  *
  * Les filtres `interest` et `store_id` acceptent une liste CSV (ex: "TRANSACTION,LOCATION"
- * ou "1,2,3"). Scope requis : ref:read.
+ * ou "1,2,3").
+ *
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class StatusResource extends AbstractResource
 {

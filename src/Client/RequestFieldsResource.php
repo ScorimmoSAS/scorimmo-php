@@ -17,7 +17,7 @@ namespace Scorimmo\Client;
  *  - store_id  (int)    : filtrer par point de vente
  *  - interest  (string) : filtrer par intérêt (ex: 'Location')
  *
- * Scope requis : ref:read
+ * @scope ROLE_API_REF_READ (ref:read)
  */
 class RequestFieldsResource extends AbstractResource
 {

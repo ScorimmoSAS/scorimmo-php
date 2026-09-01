@@ -2,6 +2,7 @@
 
 namespace Scorimmo\Webhook;
 
+use Psr\Log\LoggerInterface;
 use Scorimmo\Exception\WebhookAuthException;
 use Scorimmo\Exception\WebhookValidationException;
 
@@ -71,15 +72,24 @@ class ScorimmoWebhook
 
     private readonly ?string $signatureSecret;
     private readonly string  $signatureHeader; // lower-case pour comparaison insensible à la casse
+    private readonly ?LoggerInterface $logger;
 
+    /**
+     * @param string|null          $signatureSecret Secret HMAC partagé (null = pas de vérification côté SDK).
+     * @param string               $signatureHeader Nom du header portant la signature (défaut : `X-Signature-256`).
+     * @param LoggerInterface|null $logger          Logger PSR-3 optionnel : trace en `warning` les événements
+     *                                              dispatch()és sans handler ni fallback `'unknown'`.
+     */
     public function __construct(
         ?string $signatureSecret = null,
         string  $signatureHeader = self::DEFAULT_SIGNATURE_HEADER,
+        ?LoggerInterface $logger = null,
     ) {
         // Un secret vide équivaut à ne pas vérifier — normalise en null pour éviter un
         // hash_equals silencieusement toujours faux si l'env var n'est pas renseignée.
         $this->signatureSecret = ($signatureSecret !== null && $signatureSecret !== '') ? $signatureSecret : null;
         $this->signatureHeader = strtolower($signatureHeader);
+        $this->logger          = $logger;
     }
 
     /**
@@ -120,6 +130,10 @@ class ScorimmoWebhook
      * Clés supportées : new_lead, update_lead, new_comment, new_rdv, new_reminder, closure_lead.
      * La clé spéciale 'unknown' capture tous les événements non reconnus (utile pour recevoir
      * les événements futurs émis en `webhook.<name>`).
+     *
+     * Si aucun handler nommé ni fallback `'unknown'` n'est enregistré, l'événement est ignoré
+     * silencieusement — un logger PSR-3 injecté au constructeur reçoit alors un `warning`
+     * indiquant le nom de l'événement (aucune exception n'est levée).
      */
     public function dispatch(array $event, array $handlers): void
     {
@@ -128,7 +142,13 @@ class ScorimmoWebhook
 
         if ($handler !== null) {
             $handler($event);
+            return;
         }
+
+        $this->logger?->warning(
+            'Scorimmo webhook event dispatched with no matching handler',
+            ['event' => $eventName, 'registered_handlers' => array_keys($handlers)],
+        );
     }
 
     /**
