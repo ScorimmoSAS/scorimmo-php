@@ -287,7 +287,21 @@ class ScorimmoClient
      */
     public function request(string $method, string $path, mixed $body = null): array
     {
-        return $this->rawRequest($method, $path, $body, authenticate: true);
+        try {
+            return $this->rawRequest($method, $path, $body, authenticate: true);
+        } catch (ScorimmoApiException $e) {
+            if ($e->statusCode !== 401) {
+                throw $e;
+            }
+            // Cache invalidé : on force l'obtention d'un nouveau token puis on retente UNE fois.
+            $this->accessToken    = null;
+            $this->tokenExpiresAt = null;
+            $this->logger->warning('[Scorimmo] Received 401 on {method} {path}, retrying once with a fresh token', [
+                'method' => $method,
+                'path'   => $path,
+            ]);
+            return $this->rawRequest($method, $path, $body, authenticate: true);
+        }
     }
 
     /**
@@ -393,7 +407,51 @@ class ScorimmoClient
     private function applyTokenResponse(array $response): void
     {
         $this->accessToken    = (string) $response['access_token'];
-        $this->refreshToken   = isset($response['refresh_token']) ? (string) $response['refresh_token'] : null;
-        $this->tokenExpiresAt = (new DateTimeImmutable((string) $response['expires_at']))->modify('-60 seconds') ?: null;
+        $this->refreshToken   = isset($response['refresh_token']) ? (string) $response['refresh_token'] : $this->refreshToken;
+        // 60s de marge pour éviter les courses au bord de l'expiration.
+        $this->tokenExpiresAt = $this->resolveExpiryDate($response)->modify('-60 seconds') ?: null;
+    }
+
+    /**
+     * Résout la date d'expiration absolue depuis la réponse token :
+     *  - `expires_at` en Unix seconds (int/float ou chaîne 100% numérique) — convention API v2 principale
+     *  - `expires_at` en ISO 8601 (string) — compat historique
+     *  - repli sur `expires_in` (secondes relatives à maintenant) si `expires_at` manque ou est illisible
+     *  - dernier recours : expiration immédiate (pour forcer un refresh au prochain appel)
+     *
+     * L'heuristique pour distinguer secondes/millisecondes : < 1e12 → secondes, sinon millisecondes.
+     *
+     * @param array<string, mixed> $response
+     */
+    private function resolveExpiryDate(array $response): DateTimeImmutable
+    {
+        $raw = $response['expires_at'] ?? null;
+
+        if (is_int($raw) || is_float($raw)) {
+            return $this->epochToDate((int) ($raw < 1e12 ? $raw : $raw / 1000));
+        }
+
+        if (is_string($raw) && $raw !== '') {
+            if (ctype_digit($raw)) {
+                $numeric = (int) $raw;
+                return $this->epochToDate($numeric < 1e12 ? $numeric : (int) ($numeric / 1000));
+            }
+            try {
+                return new DateTimeImmutable($raw);
+            } catch (\Exception) {
+                // fall through to expires_in
+            }
+        }
+
+        if (isset($response['expires_in']) && is_numeric($response['expires_in'])) {
+            return $this->epochToDate(time() + (int) $response['expires_in']);
+        }
+
+        return new DateTimeImmutable(); // expiration immédiate
+    }
+
+    private function epochToDate(int $seconds): DateTimeImmutable
+    {
+        return (new DateTimeImmutable())->setTimestamp($seconds);
     }
 }

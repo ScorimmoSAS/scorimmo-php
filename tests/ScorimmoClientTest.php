@@ -7,6 +7,7 @@ use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Scorimmo\Client\ScorimmoClient;
+use Scorimmo\Exception\ScorimmoApiException;
 use Scorimmo\Exception\ScorimmoAuthException;
 
 class ScorimmoClientTest extends TestCase
@@ -149,6 +150,106 @@ class ScorimmoClientTest extends TestCase
 
         $this->assertSame('tok-2', $result['access_token']);
         $this->assertSame('ref-2', $client->getRefreshToken());
+    }
+
+    // ── request() — retry unique sur 401 ──────────────────────────────────────────
+
+    public function testAuthenticatedRequestRetriesOnceAfter401(): void
+    {
+        $http = $this->mockHttp();
+        // 1) auth initiale (POST /auth/token) → tok-1
+        // 2) GET protégé avec tok-1 → 401
+        // 3) auth (POST /auth/token) → tok-2
+        // 4) GET protégé avec tok-2 → 200
+        $http->expects($this->exactly(4))
+            ->method('request')
+            ->willReturnOnConsecutiveCalls(
+                $this->httpResponse($this->tokenResponse('tok-1', 'ref-1')),
+                $this->httpResponse(['message' => 'Token expired'], 401),
+                $this->httpResponse($this->tokenResponse('tok-2', 'ref-2')),
+                $this->httpResponse(['id' => 42, 'ok' => true]),
+            );
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+        $result = $client->request('GET', '/api/v2/leads/42');
+
+        $this->assertSame(42, $result['id']);
+        $this->assertSame('tok-2', $client->getToken());
+    }
+
+    public function testAuthenticatedRequestDoesNotRetryTwiceOn401(): void
+    {
+        $http = $this->mockHttp();
+        // Deux 401 successifs sur l'endpoint protégé → l'exception doit remonter.
+        $http->expects($this->exactly(4))
+            ->method('request')
+            ->willReturnOnConsecutiveCalls(
+                $this->httpResponse($this->tokenResponse('tok-1')),
+                $this->httpResponse(['message' => 'Unauthorized'], 401),
+                $this->httpResponse($this->tokenResponse('tok-2')),
+                $this->httpResponse(['message' => 'Unauthorized'], 401),
+            );
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+
+        $this->expectException(ScorimmoApiException::class);
+        $client->request('GET', '/api/v2/leads/42');
+    }
+
+    // ── applyTokenResponse — parsing d'expires_at ─────────────────────────────────
+
+    public function testAuthAcceptsExpiresAtAsUnixTimestamp(): void
+    {
+        $futureUnix = time() + 3600;
+
+        $http = $this->mockHttp();
+        $http->expects($this->once())
+            ->method('request')
+            ->willReturn($this->httpResponse([
+                'access_token'  => 'tok-unix',
+                'refresh_token' => 'ref-unix',
+                'expires_at'    => $futureUnix, // entier Unix
+            ]));
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+        $this->assertSame('tok-unix', $client->getToken());
+        // Un second appel doit renvoyer le token en cache (pas d'appel HTTP supplémentaire attendu par le mock).
+        $this->assertSame('tok-unix', $client->getToken());
+    }
+
+    public function testAuthAcceptsExpiresAtAsNumericString(): void
+    {
+        $futureUnix = (string) (time() + 3600);
+
+        $http = $this->mockHttp();
+        $http->expects($this->once())
+            ->method('request')
+            ->willReturn($this->httpResponse([
+                'access_token'  => 'tok-numstr',
+                'refresh_token' => 'ref-numstr',
+                'expires_at'    => $futureUnix,
+            ]));
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+        $this->assertSame('tok-numstr', $client->getToken());
+        $this->assertSame('tok-numstr', $client->getToken());
+    }
+
+    public function testAuthFallsBackToExpiresInWhenExpiresAtIsMissing(): void
+    {
+        $http = $this->mockHttp();
+        $http->expects($this->once())
+            ->method('request')
+            ->willReturn($this->httpResponse([
+                'access_token'  => 'tok-expin',
+                'refresh_token' => 'ref-expin',
+                'expires_in'    => 3600, // pas d'expires_at
+            ]));
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+        $this->assertSame('tok-expin', $client->getToken());
+        // Le cache doit être valide → pas de second appel HTTP.
+        $this->assertSame('tok-expin', $client->getToken());
     }
 
     public function testRefreshAccessTokenThrowsWhenRejected(): void

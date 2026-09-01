@@ -41,7 +41,6 @@ class FormResource extends AbstractResource
      *     email?:      string,
      *     phone?:      string,
      *   },
-     *   requests_type?:    string,
      *   requests?:         array<int, array<string, mixed>>,
      *   additional_fields?: array<int, array<string, mixed>>,
      *   external_lead_id?: string,
