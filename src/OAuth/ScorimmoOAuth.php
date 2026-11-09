@@ -5,6 +5,7 @@ namespace Scorimmo\OAuth;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\TransferException;
+use Scorimmo\Client\ScorimmoClient;
 use Scorimmo\Exception\ScorimmoApiException;
 
 /**
@@ -40,6 +41,7 @@ class ScorimmoOAuth
             'headers'         => [
                 'Content-Type' => 'application/json',
                 'Accept'       => 'application/json',
+                'User-Agent'   => 'scorimmo-php/' . ScorimmoClient::VERSION,
             ],
         ]);
     }

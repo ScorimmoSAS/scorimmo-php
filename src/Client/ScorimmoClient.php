@@ -57,6 +57,9 @@ use Scorimmo\Exception\ScorimmoAuthException;
  */
 class ScorimmoClient
 {
+    /** Version du SDK, à faire correspondre au tag git de la release (voir CHANGELOG.md). */
+    public const VERSION = '1.1.0';
+
     // ── Token state ────────────────────────────────────────────────────────────────
 
     private ?string           $accessToken    = null;
@@ -123,6 +126,7 @@ class ScorimmoClient
             'headers'         => [
                 'Content-Type' => 'application/json',
                 'Accept'       => 'application/json',
+                'User-Agent'   => 'scorimmo-php/' . self::VERSION,
             ],
         ]);
 
