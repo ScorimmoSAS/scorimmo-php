@@ -26,6 +26,9 @@ use Scorimmo\Exception\ScorimmoAuthException;
  *   // récupérer le nouveau refresh token après le premier appel :
  *   $client->getRefreshToken();
  *
+ * Authentification par refresh token OAuth (voir {@see \Scorimmo\OAuth\ScorimmoOAuth}) :
+ *   $client = new ScorimmoClient(refreshToken: $tokenPersisté, oauthClientId: $clientId);
+ *
  * Avec logger PSR-3 (Monolog, etc.) :
  *   $client = new ScorimmoClient(email: '...', password: '...', logger: $logger);
  *
@@ -47,6 +50,10 @@ use Scorimmo\Exception\ScorimmoAuthException;
  *  @property-read RequestFieldsResource    $requestFields    Champs de demande par agence/intérêt
  *  @property-read FormResource             $form             Soumission de formulaires publics (ROLE_API_FORM_WRITE)
  *  @property-read WebCallbacksResource     $webCallbacks     Déclenchement d'appels sortants (auth par clé WCB)
+ *  @property-read CampaignsResource        $campaigns        Campagnes d'appels
+ *  @property-read CampaignFieldsResource   $campaignFields   Questions des campagnes
+ *  @property-read CampaignContactsResource $campaignContacts Contacts des campagnes (lecture et injection)
+ *  @property-read WebhooksResource         $webhooks         Abonnements webhook et historique des erreurs
  */
 class ScorimmoClient
 {
@@ -77,7 +84,16 @@ class ScorimmoClient
     public readonly RequestFieldsResource    $requestFields;
     public readonly FormResource             $form;
     public readonly WebCallbacksResource     $webCallbacks;
+    public readonly CampaignsResource        $campaigns;
+    public readonly CampaignFieldsResource   $campaignFields;
+    public readonly CampaignContactsResource $campaignContacts;
+    public readonly WebhooksResource         $webhooks;
 
+    /**
+     * @param string|null $tokenName     Nom de la session (100 caractères max), affiché par listTokens()
+     * @param string|null $oauthClientId Client OAuth à qui $refreshToken a été émis : le renouvellement
+     *                                   passe alors par /api/v2/oauth/token au lieu de /api/v2/auth/refresh
+     */
     public function __construct(
         private readonly ?string $email = null,
         private readonly ?string $password = null,
@@ -85,11 +101,17 @@ class ScorimmoClient
         ?LoggerInterface $logger = null,
         ?ClientInterface $http = null,
         string|null $refreshToken = null,
+        private readonly ?string $tokenName = null,
+        private readonly ?string $oauthClientId = null,
     ) {
         if ($email === null && $refreshToken === null) {
             throw new \InvalidArgumentException(
                 'ScorimmoClient requires either email+password or a refreshToken.'
             );
+        }
+
+        if ($oauthClientId !== null && $refreshToken === null) {
+            throw new \InvalidArgumentException('ScorimmoClient requires a refreshToken when oauthClientId is set.');
         }
 
         $this->logger = $logger ?? new NullLogger();
@@ -122,6 +144,10 @@ class ScorimmoClient
         $this->requestFields    = new RequestFieldsResource($this);
         $this->form             = new FormResource($this);
         $this->webCallbacks     = new WebCallbacksResource($this);
+        $this->campaigns        = new CampaignsResource($this);
+        $this->campaignFields   = new CampaignFieldsResource($this);
+        $this->campaignContacts = new CampaignContactsResource($this);
+        $this->webhooks         = new WebhooksResource($this);
     }
 
     // ── Gestion des tokens ────────────────────────────────────────────────────────
@@ -171,7 +197,7 @@ class ScorimmoClient
         $response = $this->rawRequest('POST', '/api/v2/auth/token', [
             'email'    => $this->email,
             'password' => $this->password,
-        ], authenticate: false);
+        ] + ($this->tokenName !== null ? ['name' => $this->tokenName] : []), authenticate: false);
 
         if (!isset($response['access_token'])) {
             throw new ScorimmoAuthException('Authentication failed: no access_token in response');
@@ -211,9 +237,11 @@ class ScorimmoClient
     {
         $this->logger->info('[Scorimmo] Refreshing access token');
 
-        $response = $this->rawRequest('POST', '/api/v2/auth/refresh', [
-            'refresh_token' => $refreshToken,
-        ], authenticate: false);
+        $response = $this->oauthClientId !== null
+            ? $this->exchangeOAuthRefreshToken($refreshToken, $this->oauthClientId)
+            : $this->rawRequest('POST', '/api/v2/auth/refresh', [
+                'refresh_token' => $refreshToken,
+            ], authenticate: false);
 
         if (!isset($response['access_token'])) {
             throw new ScorimmoAuthException('Token refresh failed: no access_token in response');
@@ -226,6 +254,29 @@ class ScorimmoClient
         ]);
 
         return $response;
+    }
+
+    /**
+     * @return array<string, mixed>
+     * @throws ScorimmoApiException
+     * @throws ScorimmoAuthException
+     */
+    private function exchangeOAuthRefreshToken(string $refreshToken, string $clientId): array
+    {
+        try {
+            return $this->rawRequest('POST', '/api/v2/oauth/token', [
+                'grant_type'    => 'refresh_token',
+                'refresh_token' => $refreshToken,
+                'client_id'     => $clientId,
+            ], authenticate: false);
+        } catch (ScorimmoApiException $e) {
+            // /oauth/token signale un refresh token rejeté en 400 invalid_grant, et non en 401.
+            if ($e->apiCode === 'invalid_grant') {
+                throw new ScorimmoAuthException($e->getMessage(), 0, $e);
+            }
+
+            throw $e;
+        }
     }
 
     /**
@@ -243,6 +294,7 @@ class ScorimmoClient
      * @param  string|null $refreshToken  null = révoquer tous les tokens
      * @return array<string, mixed>
      * @throws ScorimmoApiException
+     * @throws ScorimmoAuthException
      */
     public function revokeToken(?string $refreshToken = null): array
     {
@@ -250,11 +302,52 @@ class ScorimmoClient
             'revoke_all' => $refreshToken === null,
         ]);
 
+        // L'endpoint exige un Bearer, dont l'obtention peut faire tourner le refresh token courant.
+        $current = $this->refreshToken;
+        $this->getToken();
+        if ($refreshToken !== null && $refreshToken === $current) {
+            $refreshToken = $this->refreshToken;
+        }
+
         $body = $refreshToken !== null
             ? ['refresh_token' => $refreshToken]
             : ['revoke_all'    => true];
 
-        return $this->rawRequest('POST', '/api/v2/auth/revoke', $body, authenticate: false);
+        return $this->request('POST', '/api/v2/auth/revoke', $body);
+    }
+
+    /**
+     * Liste les refresh tokens actifs du compte (5 au maximum).
+     * GET /api/v2/auth/tokens
+     *
+     * @return array{code: int, data: array<int, array{
+     *   id: int,
+     *   name: string|null,
+     *   ip_address: string|null,
+     *   user_agent: string|null,
+     *   source: string,
+     *   created_at: string,
+     *   expires_at: string,
+     * }>}
+     * @throws ScorimmoApiException
+     * @throws ScorimmoAuthException
+     */
+    public function listTokens(): array
+    {
+        return $this->request('GET', '/api/v2/auth/tokens');
+    }
+
+    /**
+     * Révoque un refresh token par son identifiant (voir listTokens()).
+     * DELETE /api/v2/auth/tokens/{id}
+     *
+     * @return array{code: int, message: string}
+     * @throws ScorimmoApiException  404 si le token est introuvable
+     * @throws ScorimmoAuthException
+     */
+    public function deleteToken(int $id): array
+    {
+        return $this->request('DELETE', "/api/v2/auth/tokens/{$id}");
     }
 
     /**
@@ -266,7 +359,7 @@ class ScorimmoClient
      *   status: string,
      *   authenticated: bool,
      *   scopes: string[],
-     *   stores: int[],
+     *   stores_id: int[],
      *   interests: string[],
      * }
      */
@@ -375,7 +468,10 @@ class ScorimmoClient
         $data = json_decode((string) $response->getBody(), true) ?? [];
 
         if ($status < 200 || $status >= 300) {
-            $message = $data['message'] ?? "HTTP {$status}";
+            // Les endpoints /auth répondent { code, error }, /oauth { error, error_description },
+            // les autres { status, code, message }.
+            $message = $data['message'] ?? $data['error_description'] ?? $data['error'] ?? "HTTP {$status}";
+            $apiCode = $data['code'] ?? $data['error'] ?? null;
 
             if (!$authenticate && $status === 401) {
                 $this->logger->error('[Scorimmo] Authentication failed on {path}: {message}', [
@@ -390,10 +486,18 @@ class ScorimmoClient
                 'method'  => $method,
                 'path'    => $path,
                 'message' => $message,
-                'code'    => $data['code'] ?? null,
+                'code'    => $apiCode,
             ]);
 
-            throw new ScorimmoApiException($message, $status, $data['code'] ?? null);
+            $retryAfter = $response->getHeaderLine('Retry-After');
+
+            throw new ScorimmoApiException(
+                $message,
+                $status,
+                $apiCode,
+                $data,
+                ctype_digit($retryAfter) ? (int) $retryAfter : null,
+            );
         }
 
         return $data;

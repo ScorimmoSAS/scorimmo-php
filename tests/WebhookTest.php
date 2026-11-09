@@ -2,6 +2,7 @@
 
 namespace Scorimmo\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Scorimmo\Exception\WebhookAuthException;
 use Scorimmo\Exception\WebhookValidationException;
@@ -231,5 +232,26 @@ class WebhookTest extends TestCase
         $webhook = new ScorimmoWebhook();
         $this->assertSame('2026-04-20', $webhook->getApiVersion(['X-Scorimmo-Version' => '2026-04-20']));
         $this->assertNull($webhook->getApiVersion([]));
+    }
+
+    // ── Événements de campagne ────────────────────────────────────────────────────
+
+    #[DataProvider('campaignEvents')]
+    public function testDispatchesCampaignEventsToNamedHandler(string $event): void
+    {
+        $webhook  = new ScorimmoWebhook();
+        $received = null;
+
+        $webhook->handle([], json_encode(['event' => $event, 'campaign_id' => 12]), [
+            $event    => function (array $e) use (&$received): void { $received = $e; },
+            'unknown' => fn() => $this->fail('Campaign event routed to unknown handler'),
+        ]);
+
+        $this->assertSame(12, $received['campaign_id']);
+    }
+
+    public static function campaignEvents(): array
+    {
+        return [['campaign_contact_updated'], ['campaign_contact_closed'], ['campaign_closed']];
     }
 }

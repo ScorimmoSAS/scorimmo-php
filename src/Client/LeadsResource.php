@@ -67,7 +67,6 @@ class LeadsResource extends AbstractResource
      *   customer_last_name?:    string,
      *   'customer.email'?:      string,
      *   'customer.phone'?:      string,
-     *   external_lead_id?:      string,
      *   requests_reference?:    string,
      *   ids?:                   string,
      *   'created_at[eq]'?:      string,

@@ -11,6 +11,7 @@ namespace Scorimmo\Client;
  * Retourne les champs complémentaires qu'il est possible de renseigner sur un lead
  * (au-delà des champs standards). Utiliser les `label` retournés comme clés dans le
  * tableau `additional_fields` de POST /api/v2/form.
+ * Le `type` retourné vaut `string`, `number`, `integer`, `boolean` ou `choice`.
  * Pour les champs de type `choice`, seules les valeurs de `choices` sont acceptées.
  *
  * Paramètres de list() :

@@ -38,6 +38,9 @@ use Scorimmo\Exception\WebhookValidationException;
  *  new_comment    → lead.comment_added
  *  new_rdv        → lead.appointment_created
  *  new_reminder   → lead.reminder_created
+ *  campaign_contact_updated → campaign.contact_updated (webhooks v2 uniquement)
+ *  campaign_contact_closed  → campaign.contact_closed  (webhooks v2 uniquement)
+ *  campaign_closed          → campaign.closed          (webhooks v2 uniquement)
  *
  * Tout événement futur inconnu est diffusé sous la forme `webhook.<internal_event>` dans
  * X-Scorimmo-Event ; le champ `event` du payload garde son nom interne. Les événements
@@ -45,7 +48,8 @@ use Scorimmo\Exception\WebhookValidationException;
  *
  * Idempotence : Scorimmo garantit une livraison at-least-once (jusqu'à 6 tentatives avec
  * backoff exponentiel jusqu'à 60s). Le corps et la signature sont identiques à chaque retry.
- * Le receveur doit donc être idempotent (dédupliquer par (event, lead_id, created_at)).
+ * Le receveur doit donc être idempotent (dédupliquer par (event, lead_id, created_at), ou pour
+ * les campagnes par (event, contact_id, updated_at|closed_at) et (event, campaign_id, closed_at)).
  *
  * Utilisation avec signature HMAC (recommandé) :
  *   $webhook = new ScorimmoWebhook(signatureSecret: $secret);
@@ -127,7 +131,8 @@ class ScorimmoWebhook
      * @param array<string, mixed>    $event    Payload parsé (retourné par parse())
      * @param array<string, callable> $handlers Map nom-événement => callable
      *
-     * Clés supportées : new_lead, update_lead, new_comment, new_rdv, new_reminder, closure_lead.
+     * Clés supportées : new_lead, update_lead, new_comment, new_rdv, new_reminder, closure_lead,
+     * campaign_contact_updated, campaign_contact_closed, campaign_closed.
      * La clé spéciale 'unknown' capture tous les événements non reconnus (utile pour recevoir
      * les événements futurs émis en `webhook.<name>`).
      *

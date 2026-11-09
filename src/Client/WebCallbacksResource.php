@@ -25,9 +25,11 @@ class WebCallbacksResource extends AbstractResource
      * Déclenche un appel sortant vers un numéro depuis le point de vente rattaché à la clé WCB.
      *
      * @param  string $key           Clé personnelle WebCallback (fournie par Scorimmo, distincte du couple email/password)
-     * @param  string $numberToCall  Numéro de téléphone destinataire au format international ou local
+     * @param  string $numberToCall  Fixe ou mobile de France métropolitaine (ex: 0612345678 ou +33612345678) ;
+     *                               numéros surtaxés, courts, étrangers et d'outre-mer refusés (400)
      * @return array{results: array<int, string>, information: int}
      * @throws \InvalidArgumentException Si l'un des deux paramètres est vide
+     * @throws \Scorimmo\Exception\ScorimmoApiException 429 si trop de demandes : réessayer après $e->retryAfter secondes
      *
      * @scope aucun (clé WCB en body)
      */

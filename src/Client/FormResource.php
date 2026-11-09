@@ -30,17 +30,18 @@ class FormResource extends AbstractResource
      * @param array{
      *   store_id:          int,
      *   libelle_id:        int,
-     *   to_email:          string|string[],
+     *   to_email:          string,
      *   origin:            string,
      *   message:           string,
      *   subject?:          string,
      *   customer?:         array{
-     *     civility?:   'M.'|'Mme',
+     *     title?:      'M.'|'Mme',
      *     first_name?: string,
      *     last_name?:  string,
      *     email?:      string,
      *     phone?:      string,
      *   },
+     *   requests_type?:    string,
      *   requests?:         array<int, array<string, mixed>>,
      *   additional_fields?: array<int, array<string, mixed>>,
      *   external_lead_id?: string,
@@ -59,6 +60,12 @@ class FormResource extends AbstractResource
                     sprintf('submit() requires "%s" in payload', $required)
                 );
             }
+        }
+
+        // `customer.civility` est devenu `title` : l'API ignorerait l'ancienne clé sans erreur.
+        if (isset($data['customer']['civility'])) {
+            $data['customer']['title'] ??= $data['customer']['civility'];
+            unset($data['customer']['civility']);
         }
 
         return $this->client->request('POST', $this->basePath(), $data);

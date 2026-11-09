@@ -264,4 +264,102 @@ class ScorimmoClientTest extends TestCase
         $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
         $client->refreshAccessToken('bad-token');
     }
+
+    // ── Tokens API ────────────────────────────────────────────────────────────────
+
+    public function testTokenNameIsSentOnLogin(): void
+    {
+        $http = $this->mockHttp();
+        $http->expects($this->once())
+            ->method('request')
+            ->with('POST', '/api/v2/auth/token', ['json' => ['email' => 'user@test.com', 'password' => 'secret', 'name' => 'batch-nuit']])
+            ->willReturn($this->httpResponse($this->tokenResponse()));
+
+        (new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http, tokenName: 'batch-nuit'))->getToken();
+    }
+
+    public function testLoginErrorExposesApiErrorMessage(): void
+    {
+        $http = $this->mockHttp();
+        $http->method('request')->willReturn($this->httpResponse(['code' => 403, 'error' => 'Refresh token limit reached (5)'], 403));
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+
+        try {
+            $client->getToken();
+            $this->fail('Expected ScorimmoApiException');
+        } catch (ScorimmoApiException $e) {
+            $this->assertSame('Refresh token limit reached (5)', $e->getMessage());
+            $this->assertSame(403, $e->statusCode);
+        }
+    }
+
+    public function testRevokeTokenSendsBearer(): void
+    {
+        $calls = [];
+        $http  = $this->mockHttp();
+        $http->method('request')->willReturnCallback(function (string $method, string $path, array $options) use (&$calls) {
+            $calls[] = [$path, $options];
+            return $this->httpResponse($path === '/api/v2/auth/token' ? $this->tokenResponse() : ['code' => 200, 'revoked_count' => 2]);
+        });
+
+        (new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http))->revokeToken();
+
+        $this->assertSame('/api/v2/auth/revoke', $calls[1][0]);
+        $this->assertSame('Bearer access-abc', $calls[1][1]['headers']['Authorization']);
+        $this->assertSame(['revoke_all' => true], $calls[1][1]['json']);
+    }
+
+    public function testRevokeTokenTargetsRotatedTokenWhenRevokingCurrentOne(): void
+    {
+        $calls = [];
+        $http  = $this->mockHttp();
+        $http->method('request')->willReturnCallback(function (string $method, string $path, array $options) use (&$calls) {
+            $calls[] = [$path, $options];
+            return $this->httpResponse($path === '/api/v2/auth/refresh' ? $this->tokenResponse('access-new', 'rotated') : ['code' => 200]);
+        });
+
+        (new ScorimmoClient(refreshToken: 'initial', http: $http))->revokeToken('initial');
+
+        $this->assertSame(['refresh_token' => 'rotated'], $calls[1][1]['json']);
+    }
+
+    public function testListAndDeleteTokens(): void
+    {
+        $paths = [];
+        $http  = $this->mockHttp();
+        $http->method('request')->willReturnCallback(function (string $method, string $path) use (&$paths) {
+            $paths[] = "{$method} {$path}";
+            return $this->httpResponse($path === '/api/v2/auth/token' ? $this->tokenResponse() : ['code' => 200, 'data' => []]);
+        });
+
+        $client = new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http);
+        $client->listTokens();
+        $client->deleteToken(7);
+
+        $this->assertSame(['GET /api/v2/auth/tokens', 'DELETE /api/v2/auth/tokens/7'], array_slice($paths, 1));
+    }
+
+    // ── Détail des erreurs ────────────────────────────────────────────────────────
+
+    public function testApiExceptionExposesBodyFieldErrorsAndRetryAfter(): void
+    {
+        $body = ['status' => 422, 'code' => 'UNPROCESSABLE_ENTITY', 'message' => 'Validation failed', 'errors' => [['field' => 'url', 'message' => 'invalide']]];
+
+        $http = $this->mockHttp();
+        $http->method('request')->willReturnCallback(function (string $method, string $path) use ($body) {
+            return $path === '/api/v2/auth/token'
+                ? $this->httpResponse($this->tokenResponse())
+                : new Response(422, ['Retry-After' => '30'], json_encode($body, JSON_THROW_ON_ERROR));
+        });
+
+        try {
+            (new ScorimmoClient(email: 'user@test.com', password: 'secret', http: $http))->webhooks->update(1, ['url' => 'x']);
+            $this->fail('Expected ScorimmoApiException');
+        } catch (ScorimmoApiException $e) {
+            $this->assertSame($body, $e->body);
+            $this->assertSame($body['errors'], $e->getFieldErrors());
+            $this->assertSame(30, $e->retryAfter);
+        }
+    }
 }

@@ -11,6 +11,7 @@ namespace Scorimmo\Client;
  * Retourne les critères de recherche immobilière attendus dans le tableau `requests`
  * de POST /api/v2/form. Utiliser les `label` retournés comme clés dans chaque objet
  * du tableau `requests`.
+ * Le `type` retourné vaut `string`, `number`, `integer`, `boolean` ou `choice`.
  * Pour les champs de type `choice`, seules les valeurs de `choices` sont acceptées.
  *
  * Paramètres de list() :

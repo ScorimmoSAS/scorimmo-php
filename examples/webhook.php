@@ -92,6 +92,31 @@ try {
         },
 
         /**
+         * Contact de campagne modifié (webhooks v2). Payload : contact_id, campaign_id, store_id,
+         * updated_at, puis les seuls champs modifiés : status?, sub_status?, answers?, customer?.
+         */
+        'campaign_contact_updated' => function (array $event): void {
+            error_log("[campaign_contact_updated] Contact #{$event['contact_id']} (campagne #{$event['campaign_id']})");
+        },
+
+        /**
+         * Contact de campagne clôturé (webhooks v2). Payload : état complet du contact
+         * (contact_id, campaign_id, store_id, status, sub_status, customer, answers, comment,
+         * call_count, first_contact_at, last_contact_at, closed_at).
+         */
+        'campaign_contact_closed' => function (array $event): void {
+            error_log("[campaign_contact_closed] Contact #{$event['contact_id']} — {$event['status']}");
+        },
+
+        /**
+         * Campagne clôturée (webhooks v2). Payload : campaign_id, store_id, name, start, end,
+         * closed_at, close_reason ('manual'|'end_date').
+         */
+        'campaign_closed' => function (array $event): void {
+            error_log("[campaign_closed] Campagne #{$event['campaign_id']} — {$event['close_reason']}");
+        },
+
+        /**
          * Événement futur non encore modélisé (arrivé avec X-Scorimmo-Event: webhook.<name>).
          * Loguez pour analyse : Scorimmo peut ajouter de nouveaux événements sans breaking change.
          */
